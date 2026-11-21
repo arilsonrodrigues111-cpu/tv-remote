@@ -7,23 +7,28 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
-const TOKEN = process.env.TOKEN || 'troque-este-token';           // senha do painel (admin)
-const AGENT_TOKEN = process.env.AGENT_TOKEN || TOKEN;              // embutido no APK, só permite agir como agente
+// Token opcional dos agentes (embutido no APK). Sem ele, qualquer agente pode se registrar,
+// mas só o painel (com senha) consegue ver ou controlar qualquer coisa.
+const AGENT_TOKEN = process.env.AGENT_TOKEN || '';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const APK_DIR = path.join(DATA_DIR, 'apks');
 const MAX_UPLOAD = parseInt(process.env.MAX_UPLOAD_MB || '500', 10) * 1024 * 1024;
 const APK_TTL_H = parseInt(process.env.APK_TTL_HOURS || '72', 10);
 fs.mkdirSync(APK_DIR, { recursive: true });
 
-if (TOKEN === 'troque-este-token') console.warn('[!] Defina TOKEN=<senha forte> antes de expor o servidor.');
+// Senha do painel: variável TOKEN, ou criada no primeiro acesso ao painel (salva como hash em DATA_DIR/admin.json)
+const ADMIN_FILE = path.join(DATA_DIR, 'admin.json');
+const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
+let adminHash = process.env.TOKEN ? sha(process.env.TOKEN) : (fs.existsSync(ADMIN_FILE) ? JSON.parse(fs.readFileSync(ADMIN_FILE, 'utf8')).hash : null);
+if (!adminHash) console.warn('[!] Senha do painel ainda não definida: abra o painel para criar.');
 
 const safeEq = (a, b) => {
   const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || ''));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 };
 const tokOf = (req, url) => url.searchParams.get('token') || req.headers['x-token'];
-const authOk = (req, url) => safeEq(tokOf(req, url), TOKEN);
-const agentOk = (req, url) => safeEq(tokOf(req, url), AGENT_TOKEN) || authOk(req, url);
+const authOk = (req, url) => !!adminHash && !!tokOf(req, url) && safeEq(sha(tokOf(req, url)), adminHash);
+const agentOk = (req, url) => !AGENT_TOKEN || safeEq(tokOf(req, url), AGENT_TOKEN) || authOk(req, url);
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 // ---------- estado ----------
@@ -55,7 +60,7 @@ const server = http.createServer((req, res) => {
   if (p === '/api/upload' && req.method === 'POST') {
     if (!authOk(req, url)) { res.writeHead(401); return res.end('unauthorized'); }
     const orig = (url.searchParams.get('name') || 'app.apk').replace(/[^\w.\-]+/g, '_').slice(0, 100);
-    const file = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${orig.endsWith('.apk') ? orig : orig + '.apk'}`;
+    const file = `${Date.now()}-${crypto.randomBytes(16).toString('hex')}-${orig.endsWith('.apk') ? orig : orig + '.apk'}`;
     const dest = path.join(APK_DIR, file);
     const out = fs.createWriteStream(dest);
     let size = 0, aborted = false;
@@ -83,6 +88,24 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'content-type': MIME['.apk'], 'content-length': st.size });
       fs.createReadStream(f).pipe(res);
     });
+  }
+
+  if (p === '/api/setup') {
+    if (req.method === 'GET') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ needsSetup: !adminHash })); }
+    if (req.method === 'POST') {
+      if (adminHash) { res.writeHead(403); return res.end('já configurado'); }
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 1000) req.destroy(); });
+      req.on('end', () => {
+        let pw = ''; try { pw = JSON.parse(body).password || ''; } catch {}
+        if (pw.length < 8) { res.writeHead(400); return res.end('senha curta (mín. 8)'); }
+        adminHash = sha(pw);
+        fs.writeFileSync(ADMIN_FILE, JSON.stringify({ hash: adminHash, created: new Date().toISOString() }));
+        log('senha do painel criada');
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}');
+      });
+      return;
+    }
   }
 
   if (p === '/api/devices') {

@@ -50,8 +50,11 @@
 <body>
 <div id="login"><form onsubmit="return doLogin(event)">
   <h1>TechSolutions</h1>
-  <input id="tok" type="password" placeholder="Token do servidor" autofocus>
-  <button class="pri">Entrar</button>
+  <p class="hint" id="setupmsg" style="display:none">Primeiro acesso: crie a senha do painel (mín. 8 caracteres).</p>
+  <input id="tok" type="password" placeholder="Senha do painel" autofocus>
+  <input id="tok2" type="password" placeholder="Repita a senha" style="display:none">
+  <button class="pri" id="loginbtn">Entrar</button>
+  <div class="hint" id="loginerr" style="color:var(--bad)"></div>
 </form></div>
 
 <aside>
@@ -130,7 +133,24 @@ let TOKEN = localStorage.getItem('tvr_token') || '';
 let ws, current = null, devices = [], apps = [], lastUrl = null;
 const $ = (id) => document.getElementById(id);
 
-function doLogin(e) { e.preventDefault(); TOKEN = $('tok').value.trim(); localStorage.setItem('tvr_token', TOKEN); connect(); return false; }
+let needsSetup = false;
+fetch('/api/setup').then((r) => r.json()).then((j) => {
+  needsSetup = j.needsSetup;
+  if (needsSetup) { $('setupmsg').style.display = ''; $('tok2').style.display = ''; $('loginbtn').textContent = 'Criar senha e entrar'; }
+}).catch(() => {});
+async function doLogin(e) {
+  e.preventDefault();
+  const pw = $('tok').value.trim();
+  if (needsSetup) {
+    if (pw.length < 8) { $('loginerr').textContent = 'Mínimo 8 caracteres'; return false; }
+    if (pw !== $('tok2').value.trim()) { $('loginerr').textContent = 'As senhas não conferem'; return false; }
+    const r = await fetch('/api/setup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+    if (!r.ok) { $('loginerr').textContent = 'Erro: ' + await r.text(); return false; }
+    needsSetup = false;
+  }
+  TOKEN = pw; try { localStorage.setItem('tvr_token', TOKEN); } catch {}
+  connect(); return false;
+}
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -138,7 +158,7 @@ function connect() {
   ws.binaryType = 'blob';
   ws.onopen = () => { $('login').style.display = 'none'; log('Conectado ao servidor', 'ok'); if (current) watch(current); };
   ws.onclose = (e) => {
-    if (e.code === 4001) { $('login').style.display = 'flex'; localStorage.removeItem('tvr_token'); return; }
+    if (e.code === 4001) { $('login').style.display = 'flex'; $('loginerr').textContent = 'Senha incorreta'; try { localStorage.removeItem('tvr_token'); } catch {} return; }
     log('Desconectado, reconectando...', 'error'); setTimeout(connect, 2000);
   };
   ws.onmessage = (ev) => {
