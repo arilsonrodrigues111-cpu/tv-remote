@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TV Remote Agent</string>
+    <string name="acc_desc">Permite que o suporte remoto controle esta TV (toques, navegação e instalação de apps).</string>
+</resources>

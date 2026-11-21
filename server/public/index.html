@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV Remote – Painel</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --fg:#e7e9ee; --mut:#8b93a5; --acc:#3b82f6; --ok:#22c55e; --bad:#ef4444; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px system-ui, sans-serif; background:var(--bg); color:var(--fg); height:100vh; display:flex; }
+  aside { width:250px; border-right:1px solid var(--line); padding:12px; overflow:auto; flex-shrink:0; }
+  main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  h1 { font-size:16px; margin:0 0 12px; }
+  .dev { padding:10px; border:1px solid var(--line); border-radius:8px; margin-bottom:8px; cursor:pointer; background:var(--card); }
+  .dev.sel { border-color:var(--acc); }
+  .dev small { color:var(--mut); display:block; margin-top:2px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--ok); margin-right:6px; }
+  .bar { display:flex; gap:6px; flex-wrap:wrap; padding:8px 12px; border-bottom:1px solid var(--line); align-items:center; }
+  button { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--acc); }
+  button.pri { background:var(--acc); border-color:var(--acc); }
+  input, select { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
+  .stage { flex:1; display:flex; min-height:0; }
+  .screenwrap { flex:1; display:flex; align-items:center; justify-content:center; padding:12px; min-width:0; position:relative; }
+  #screen { max-width:100%; max-height:100%; background:#000; border-radius:6px; user-select:none; -webkit-user-drag:none; cursor:crosshair; outline:none; }
+  #placeholder { color:var(--mut); text-align:center; }
+  .side { width:300px; border-left:1px solid var(--line); display:flex; flex-direction:column; flex-shrink:0; }
+  .tabs { display:flex; border-bottom:1px solid var(--line); }
+  .tabs button { flex:1; border:0; border-radius:0; background:none; padding:10px; }
+  .tabs button.on { border-bottom:2px solid var(--acc); }
+  .pane { flex:1; overflow:auto; padding:10px; display:none; }
+  .pane.on { display:block; }
+  .app { display:flex; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid var(--line); }
+  .app span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .app small { color:var(--mut); display:block; font-size:11px; }
+  .app button { padding:3px 7px; font-size:12px; }
+  #log div { font:12px ui-monospace, monospace; padding:3px 0; border-bottom:1px solid #1f232b; }
+  #log .error { color:var(--bad); } #log .ok { color:var(--ok); }
+  .pad { display:grid; grid-template-columns:repeat(3,48px); gap:6px; justify-content:center; margin:8px 0 14px; }
+  .pad button { height:44px; }
+  #drop { position:fixed; inset:0; background:rgba(59,130,246,.18); border:4px dashed var(--acc); display:none; align-items:center; justify-content:center; font-size:26px; z-index:10; pointer-events:none; }
+  #drop.on { display:flex; }
+  .prog { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:6px 0; }
+  .prog i { display:block; height:100%; background:var(--acc); width:0; }
+  #login { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:20; }
+  #login form { background:var(--card); padding:24px; border-radius:10px; border:1px solid var(--line); display:flex; flex-direction:column; gap:10px; width:300px; }
+  .hint { color:var(--mut); font-size:12px; line-height:1.5; }
+</style>
+</head>
+<body>
+<div id="login"><form onsubmit="return doLogin(event)">
+  <h1>TV Remote</h1>
+  <input id="tok" type="password" placeholder="Token do servidor" autofocus>
+  <button class="pri">Entrar</button>
+</form></div>
+
+<aside>
+  <h1>Dispositivos</h1>
+  <div id="devs"><div class="hint">Nenhum dispositivo online.</div></div>
+  <p class="hint">Arraste um .apk para qualquer lugar da página para instalar no dispositivo selecionado.</p>
+</aside>
+
+<main>
+  <div class="bar">
+    <strong id="devname">—</strong>
+    <span style="flex:1"></span>
+    <button onclick="key('back')" title="Voltar (Esc / botão direito)">⮌ Voltar</button>
+    <button onclick="key('home')" title="Home (H)">⌂ Home</button>
+    <button onclick="key('recents')">▤ Recentes</button>
+    <button onclick="key('notifications')">🔔</button>
+    <button onclick="key('voldown')">🔉</button>
+    <button onclick="key('volup')">🔊</button>
+    <button onclick="key('mute')">🔇</button>
+    <button onclick="send({type:'startCapture'})" title="Pede o consentimento de captura na TV (o agente tenta aceitar sozinho)">▶ Capturar tela</button>
+    <select id="qual" onchange="setQuality()">
+      <option value="640,50,6">Baixa</option>
+      <option value="960,60,10" selected>Média</option>
+      <option value="1280,70,15">Alta</option>
+      <option value="1920,80,20">Máxima</option>
+    </select>
+  </div>
+  <div class="stage">
+    <div class="screenwrap">
+      <div id="placeholder">Selecione um dispositivo.</div>
+      <img id="screen" tabindex="0" style="display:none" alt="">
+    </div>
+    <div class="side">
+      <div class="tabs">
+        <button class="on" data-p="ctl">Controle</button>
+        <button data-p="apps">Apps</button>
+        <button data-p="logp">Log</button>
+      </div>
+      <div class="pane on" id="ctl">
+        <div class="pad">
+          <span></span><button onclick="key('up')">▲</button><span></span>
+          <button onclick="key('left')">◀</button><button class="pri" onclick="key('ok')">OK</button><button onclick="key('right')">▶</button>
+          <span></span><button onclick="key('down')">▼</button><span></span>
+        </div>
+        <div style="display:flex;gap:6px">
+          <input id="txt" placeholder="Digitar texto no campo focado" style="flex:1" onkeydown="if(event.key==='Enter'){sendText();event.preventDefault()}">
+          <button onclick="sendText()">Enviar</button>
+        </div>
+        <h3 style="font-size:13px;margin:16px 0 6px">Instalar APK</h3>
+        <input type="file" id="file" accept=".apk" onchange="if(this.files[0])uploadAndInstall(this.files[0]);this.value=''">
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input id="apkurl" placeholder="ou URL direta do .apk" style="flex:1">
+          <button onclick="installUrl()">Instalar</button>
+        </div>
+        <div id="uploads"></div>
+        <p class="hint" style="margin-top:16px">
+          <b>Atalhos com a tela focada:</b> setas = D-pad, Enter = OK, Esc/Backspace = voltar, H = home.
+          Clique = toque, arrastar = deslizar, botão direito = voltar, roda do mouse = rolar, segurar 600 ms = toque longo.
+        </p>
+      </div>
+      <div class="pane" id="apps">
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input id="appq" placeholder="Filtrar" style="flex:1" oninput="renderApps()">
+          <button onclick="send({type:'apps'})">↻</button>
+        </div>
+        <div id="applist" class="hint">Clique em ↻ para listar.</div>
+      </div>
+      <div class="pane" id="logp"><div id="log"></div></div>
+    </div>
+  </div>
+</main>
+<div id="drop">Solte o APK para instalar</div>
+
+<script>
+let TOKEN = localStorage.getItem('tvr_token') || '';
+let ws, current = null, devices = [], apps = [], lastUrl = null;
+const $ = (id) => document.getElementById(id);
+
+function doLogin(e) { e.preventDefault(); TOKEN = $('tok').value.trim(); localStorage.setItem('tvr_token', TOKEN); connect(); return false; }
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws?role=panel&token=${encodeURIComponent(TOKEN)}`);
+  ws.binaryType = 'blob';
+  ws.onopen = () => { $('login').style.display = 'none'; log('Conectado ao servidor', 'ok'); if (current) watch(current); };
+  ws.onclose = (e) => {
+    if (e.code === 4001) { $('login').style.display = 'flex'; localStorage.removeItem('tvr_token'); return; }
+    log('Desconectado, reconectando...', 'error'); setTimeout(connect, 2000);
+  };
+  ws.onmessage = (ev) => {
+    if (typeof ev.data !== 'string') {
+      const u = URL.createObjectURL(ev.data);
+      const img = $('screen');
+      img.onload = () => { if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = u; };
+      img.src = u; img.style.display = ''; $('placeholder').style.display = 'none';
+      return;
+    }
+    const m = JSON.parse(ev.data);
+    if (m.type === 'devices') { devices = m.list; renderDevices(); }
+    else if (m.type === 'status') log(`[${devName(m.device)}] ${m.msg}`, m.level);
+    else if (m.type === 'apps') { apps = m.list.sort((a, b) => a.label.localeCompare(b.label)); renderApps(); }
+    else if (m.type === 'progress') setProg(m.key || m.name, m.pct, `TV baixando ${m.name}`);
+    else if (m.type === 'screen') {
+      if (!m.capturing) { $('screen').style.display = 'none'; $('placeholder').style.display = '';
+        $('placeholder').innerHTML = 'Captura de tela não ativa na TV.<br><br><button onclick="send({type:\'startCapture\'})">▶ Iniciar captura</button>'; }
+    }
+  };
+}
+const devName = (id) => (devices.find((d) => d.id === id) || {}).name || id;
+function send(cmd) { if (!current) return log('Selecione um dispositivo', 'error'); ws.send(JSON.stringify({ type: 'cmd', id: current, cmd })); }
+function watch(id) {
+  current = id; ws.send(JSON.stringify({ type: 'watch', id }));
+  $('devname').textContent = devName(id); apps = []; renderApps();
+  $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').textContent = 'Aguardando imagem...';
+  renderDevices(); setQuality();
+}
+function renderDevices() {
+  const el = $('devs');
+  if (!devices.length) { el.innerHTML = '<div class="hint">Nenhum dispositivo online.</div>'; return; }
+  el.innerHTML = '';
+  for (const d of devices) {
+    const div = document.createElement('div');
+    div.className = 'dev' + (d.id === current ? ' sel' : '');
+    div.innerHTML = `<span class="dot"></span><b></b><small></small>`;
+    div.querySelector('b').textContent = d.name;
+    div.querySelector('small').textContent = [d.model, d.android && 'Android ' + d.android, d.ip].filter(Boolean).join(' · ');
+    div.onclick = () => watch(d.id);
+    el.appendChild(div);
+  }
+  if (current && !devices.find((d) => d.id === current)) { $('placeholder').textContent = 'Dispositivo offline.'; $('screen').style.display = 'none'; $('placeholder').style.display = ''; }
+}
+function renderApps() {
+  const q = $('appq').value.toLowerCase(), el = $('applist');
+  const list = apps.filter((a) => !q || a.label.toLowerCase().includes(q) || a.pkg.includes(q));
+  if (!apps.length) { el.innerHTML = '<span class="hint">Clique em ↻ para listar.</span>'; return; }
+  el.innerHTML = '';
+  for (const a of list) {
+    const row = document.createElement('div'); row.className = 'app';
+    row.innerHTML = '<span><b></b><small></small></span><button title="Abrir">▶</button><button title="Desinstalar">🗑</button>';
+    row.querySelector('b').textContent = a.label; row.querySelector('small').textContent = a.pkg + (a.version ? ' · ' + a.version : '');
+    const [bo, bu] = row.querySelectorAll('button');
+    bo.onclick = () => send({ type: 'launch', pkg: a.pkg });
+    bu.onclick = () => { if (confirm(`Desinstalar ${a.label}?`)) send({ type: 'uninstall', pkg: a.pkg }); };
+    el.appendChild(row);
+  }
+}
+function key(k) { send({ type: 'key', key: k }); }
+function sendText() { const t = $('txt').value; if (t) { send({ type: 'text', text: t }); $('txt').value = ''; } }
+function setQuality() { if (!current) return; const [max, q, fps] = $('qual').value.split(',').map(Number); send({ type: 'quality', max, q, fps }); }
+function log(msg, level = '') {
+  const d = document.createElement('div'); d.className = level; d.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+  $('log').prepend(d);
+}
+document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === b.dataset.p));
+});
+
+// ---- mouse -> toque ----
+const img = $('screen');
+let down = null, lpTimer = null;
+const norm = (e) => { const r = img.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+img.addEventListener('contextmenu', (e) => { e.preventDefault(); key('back'); });
+img.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return; img.focus(); const [x, y] = norm(e); down = { x, y, t: Date.now(), long: false };
+  lpTimer = setTimeout(() => { if (down) { down.long = true; send({ type: 'longpress', x, y }); } }, 600);
+});
+window.addEventListener('mouseup', (e) => {
+  if (!down) return; clearTimeout(lpTimer); const d = down; down = null; if (d.long) return;
+  const [x, y] = norm(e);
+  if (Math.hypot(x - d.x, y - d.y) < 0.015) send({ type: 'tap', x, y });
+  else send({ type: 'swipe', x1: d.x, y1: d.y, x2: x, y2: y, ms: Math.min(1500, Math.max(100, Date.now() - d.t)) });
+});
+img.addEventListener('wheel', (e) => {
+  e.preventDefault(); const [x, y] = norm(e); const dy = e.deltaY > 0 ? -0.25 : 0.25;
+  send({ type: 'swipe', x1: x, y1: y, x2: x, y2: Math.min(0.98, Math.max(0.02, y + dy)), ms: 250 });
+}, { passive: false });
+img.addEventListener('keydown', (e) => {
+  const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', Escape: 'back', Backspace: 'back', h: 'home', H: 'home' };
+  if (map[e.key]) { e.preventDefault(); key(map[e.key]); }
+});
+
+// ---- arrastar APK ----
+let dragDepth = 0;
+window.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; $('drop').classList.add('on'); });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('drop').classList.remove('on'); } });
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => {
+  e.preventDefault(); dragDepth = 0; $('drop').classList.remove('on');
+  for (const f of e.dataTransfer.files) if (f.name.toLowerCase().endsWith('.apk')) uploadAndInstall(f); else log(`${f.name} não é .apk`, 'error');
+});
+function setProg(key, pct, label) {
+  let el = document.querySelector(`[data-up="${CSS.escape(key)}"]`);
+  if (!el) { el = document.createElement('div'); el.dataset.up = key; el.innerHTML = '<div class="hint"></div><div class="prog"><i></i></div>'; $('uploads').prepend(el); }
+  el.querySelector('.hint').textContent = `${label} – ${pct}%`; el.querySelector('i').style.width = pct + '%';
+  if (pct >= 100) setTimeout(() => el.remove(), 4000);
+}
+function uploadAndInstall(file) {
+  if (!current) return log('Selecione um dispositivo antes de enviar', 'error');
+  const target = current, k = 'up-' + file.name + Date.now();
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload?name=' + encodeURIComponent(file.name));
+  xhr.setRequestHeader('X-Token', TOKEN);
+  xhr.upload.onprogress = (e) => e.lengthComputable && setProg(k, Math.round(e.loaded / e.total * 100), `Enviando ${file.name}`);
+  xhr.onload = () => {
+    if (xhr.status !== 200) return log('Falha no upload: ' + xhr.status, 'error');
+    const r = JSON.parse(xhr.responseText);
+    log(`Upload ok (${(r.size / 1048576).toFixed(1)} MB). Mandando a TV instalar ${file.name}`, 'ok');
+    ws.send(JSON.stringify({ type: 'cmd', id: target, cmd: { type: 'install', path: r.path, name: file.name } }));
+  };
+  xhr.onerror = () => log('Erro de rede no upload', 'error');
+  xhr.send(file);
+}
+function installUrl() {
+  const u = $('apkurl').value.trim(); if (!u) return;
+  send({ type: 'install', url: u, name: u.split('/').pop().split('?')[0] || 'app.apk' }); $('apkurl').value = '';
+}
+if (TOKEN) connect();
+</script>
+</body>
+</html>
