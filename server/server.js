@@ -7,7 +7,8 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
-const TOKEN = process.env.TOKEN || 'troque-este-token';
+const TOKEN = process.env.TOKEN || 'troque-este-token';           // senha do painel (admin)
+const AGENT_TOKEN = process.env.AGENT_TOKEN || TOKEN;              // embutido no APK, só permite agir como agente
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const APK_DIR = path.join(DATA_DIR, 'apks');
 const MAX_UPLOAD = parseInt(process.env.MAX_UPLOAD_MB || '500', 10) * 1024 * 1024;
@@ -20,7 +21,9 @@ const safeEq = (a, b) => {
   const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || ''));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 };
-const authOk = (req, url) => safeEq(url.searchParams.get('token') || req.headers['x-token'], TOKEN);
+const tokOf = (req, url) => url.searchParams.get('token') || req.headers['x-token'];
+const authOk = (req, url) => safeEq(tokOf(req, url), TOKEN);
+const agentOk = (req, url) => safeEq(tokOf(req, url), AGENT_TOKEN) || authOk(req, url);
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 // ---------- estado ----------
@@ -73,7 +76,7 @@ const server = http.createServer((req, res) => {
 
   // Download do APK pelo agente (token na query)
   if (p.startsWith('/apk/')) {
-    if (!authOk(req, url)) { res.writeHead(401); return res.end('unauthorized'); }
+    if (!agentOk(req, url)) { res.writeHead(401); return res.end('unauthorized'); }
     const f = path.join(APK_DIR, path.basename(p));
     return fs.stat(f, (err, st) => {
       if (err) { res.writeHead(404); return res.end('not found'); }
@@ -103,10 +106,10 @@ const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 8 * 1024 * 10
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://x');
-  if (!authOk(req, url)) { ws.close(4001, 'unauthorized'); return; }
+  const role = url.searchParams.get('role');
+  if (!(role === 'agent' ? agentOk(req, url) : authOk(req, url))) { ws.close(4001, 'unauthorized'); return; }
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
-  const role = url.searchParams.get('role');
 
   if (role === 'agent') {
     const id = (url.searchParams.get('id') || '').slice(0, 64);
