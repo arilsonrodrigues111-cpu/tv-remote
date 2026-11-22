@@ -311,7 +311,7 @@ public class AgentService extends Service {
                 Prefs.saveClient(this, m.optInt("num", 0), m.optString("client", ""));
                 updateNotif();
                 return;
-            case "hello": AdbShell.get(this).ensure(); sendInfo(); sendScreenState(); forceKeyframe(); if (streamWanted && projection != null) ensureDisplay(); return;
+            case "hello": AdbShell.get(this).ensure(); sendInfo(); sendScreenState(); imeChanged(); forceKeyframe(); if (streamWanted && projection != null) ensureDisplay(); return;
             case "stream":
                 streamWanted = m.optBoolean("on");
                 if (streamWanted) {
@@ -325,6 +325,8 @@ public class AgentService extends Service {
                 return;
             case "info": sendInfo(); return;
             case "apps": sendApps(); return;
+            case "allApps": sendAllApps(); return;
+            case "pkgAction": pkgAction(m.getString("action"), m.getString("pkg"), m.optBoolean("sys"), m.optString("label", m.getString("pkg"))); return;
             case "launch": launch(m.getString("pkg")); return;
             case "uninstall": uninstall(m.getString("pkg")); return;
             case "install": install(m); return;
@@ -413,7 +415,8 @@ public class AgentService extends Service {
         new Thread(new Runnable() { public void run() {
             final String local = Diag.report(AgentService.this);
             if (!AdbShell.isReady()) { sendDiagText(local + "\n(Sem Modo avançado: o log completo do sistema não está disponível.)\n"); return; }
-            String cmd = "echo '— SERVIÇOS DE ACESSIBILIDADE (sistema)'; dumpsys accessibility 2>&1 | grep -iE 'Bound services|Enabled services|Binding services|Crashed services|tvremote|isEnabled|touchExploration' | head -40; "
+            String cmd = "echo '— QUEM MEXEU NA LISTA DE ACESSIBILIDADE (pkg = app que gravou por último)'; dumpsys settings 2>/dev/null | grep -iE 'enabled_accessibility_services|accessibility_enabled' | head -30; echo; "
+                    + "echo '— SERVIÇOS DE ACESSIBILIDADE (sistema)'; dumpsys accessibility 2>&1 | grep -iE 'Bound services|Enabled services|Binding services|Crashed services|tvremote|isEnabled|touchExploration' | head -40; "
                     + "echo; echo '— LOG DO SISTEMA (trechos sobre o app e a acessibilidade)'; "
                     + "logcat -d -v time -t 6000 2>&1 | grep -iE 'tvremote|TechSolutions|accessib|AndroidRuntime|FATAL|lowmemory|am_kill|am_crash|am_anr|died' | tail -220";
             boolean ok = AdbShell.get(AgentService.this).exec(cmd, new AdbShell.Result() { public void done(String out) {
@@ -618,6 +621,46 @@ public class AgentService extends Service {
         }}).start();
     }
 
+    /** Limpeza: lista todos os apps (inclusive de fábrica). */
+    void sendAllApps() {
+        new Thread(new Runnable() { public void run() {
+            try {
+                sendJson(new JSONObject().put("type", "allApps").put("list", AppTools.list(AgentService.this))
+                        .put("me", getPackageName()).put("adb", AdbShell.isReady()));
+            } catch (Throwable e) { status("error", "Lista completa de apps: " + e); }
+        }}, "allapps").start();
+    }
+
+    /** Desativar / remover / restaurar / parar um app (Modo avançado). Sem ele, abre a tela do app na TV. */
+    private void pkgAction(final String action, final String pkg, boolean sys, final String label) {
+        if (!pkg.matches("[A-Za-z0-9._]+")) { status("error", "Nome de pacote inválido"); return; }
+        if (pkg.equals(getPackageName())) { status("error", "Não dá para mexer no próprio app de suporte por aqui"); return; }
+        if ("details".equals(action)) { AppTools.openDetails(this, pkg); status("info", "Abri a tela de " + label + " na TV"); return; }
+        if (!AdbShell.isReady()) {
+            if ("remove".equals(action) && !sys) { uninstall(pkg); return; } // app comum: desinstalador normal
+            AppTools.openDetails(this, pkg);
+            status("error", "Sem o Modo avançado não dá para " + ("disable".equals(action) ? "desativar" : "mexer em") + " app de fábrica daqui. Abri a tela de " + label + " na TV: use o controle e clique em Desativar.");
+            return;
+        }
+        String cmd = AppTools.shellFor(this, action, pkg, sys);
+        if (cmd == null) { status("error", "unadmin".equals(action) ? label + " não é administrador do aparelho" : "Ação desconhecida: " + action); return; }
+        final String fcmd = cmd;
+        boolean started = AdbShell.get(this).exec(cmd, new AdbShell.Result() { public void done(String out) {
+            boolean ok = AppTools.looksOk(action, out);
+            String o = out == null ? "" : out.trim();
+            if (o.length() > 300) o = o.substring(0, 300);
+            Diag.event("app " + pkg + ": " + action + (ok ? " ok" : " falhou: " + o));
+            if (ok) status("ok", label + " " + AppTools.doneText(action) + " ✓");
+            else if (o.contains("DELETE_FAILED_DEVICE_POLICY_MANAGER") || o.contains("device admin") || o.contains("DevicePolicy"))
+                status("error", label + " é administrador do aparelho. Clique em “Tirar admin” e tente de novo.");
+            else status("error", "Não deu para " + action + " " + label + ": " + (o.isEmpty() ? "sem resposta" : o));
+            try { sendJson(new JSONObject().put("type", "pkgResult").put("pkg", pkg).put("action", action).put("ok", ok).put("out", o).put("cmd", fcmd)); } catch (Exception ignored) {}
+            sendAllApps();
+        }});
+        if (!started) status("error", "Modo avançado caiu, tente de novo");
+        else status("info", "Executando em " + label + "…");
+    }
+
     private void launch(String pkg) {
         PackageManager pm = getPackageManager();
         Intent i = pm.getLeanbackLaunchIntentForPackage(pkg);
@@ -754,11 +797,38 @@ public class AgentService extends Service {
         } catch (Exception e) { status("error", "Atualização falhou: " + e.getMessage()); }
     }
 
+    /**
+     * Mensagem na tela da TV. Antes era um Toast (aviso pequeno de 3 s que muitas TVs escondem quando vem de app em segundo plano).
+     * Agora: faixa grande por cima de qualquer app (com o controle ligado), ou tela com botão OK.
+     */
     private void showToast(final String text) {
-        main.post(new Runnable() { public void run() {
-            try { android.widget.Toast.makeText(AgentService.this, text, android.widget.Toast.LENGTH_LONG).show(); status("ok", "Mensagem exibida na TV"); }
-            catch (Exception e) { status("error", "Não consegui exibir: " + e.getMessage()); }
-        }});
+        final RemoteAccessibility acc = RemoteAccessibility.instance;
+        new Thread(new Runnable() { public void run() {
+            if (acc != null && acc.showMessage(text)) { status("ok", "Mensagem na tela da TV ✓"); return; }
+            MessageActivity.pending = text;
+            if (AdbShell.isReady()) {
+                AdbShell.get(AgentService.this).run("am start -n " + getPackageName() + "/.MessageActivity");
+                return; // a própria tela avisa o painel quando abrir
+            }
+            main.post(new Runnable() { public void run() {
+                try {
+                    Intent i = new Intent(AgentService.this, MessageActivity.class).putExtra("text", text).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Throwable ignored) {}
+                try { android.widget.Toast.makeText(AgentService.this, text, android.widget.Toast.LENGTH_LONG).show(); } catch (Throwable ignored) {}
+                status("info", "Mensagem enviada. Sem o controle ligado algumas TVs não mostram: ligue o controle para ela aparecer sempre.");
+            }});
+        }}, "msg").start();
+    }
+
+    /** O teclado da TV abriu/fechou: o painel liga a digitação pelo teclado do computador. */
+    static void imeChanged() {
+        AgentService s = instance;
+        if (s == null) return;
+        try {
+            s.sendJson(new JSONObject().put("type", "ime").put("open", RemoteAccessibility.imeOpen)
+                    .put("hint", RemoteAccessibility.imeHint).put("text", RemoteAccessibility.imeText));
+        } catch (Exception ignored) {}
     }
 
     private void openUrl(String url) {

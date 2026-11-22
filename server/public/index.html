@@ -2,7 +2,10 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>TechSolutions – Suporte Remoto</title>
 <style>
   :root {
@@ -68,6 +71,35 @@
   .bdg.ok { color:#86efac; border-color:#1f5135; background:#11281c; }
   .bdg.bad { color:#fca5a5; border-color:#5b2323; background:#2a1414; }
   .bdg.warn { color:#fcd34d; border-color:#5b4a1d; background:#2a2210; }
+  /* limpeza de apps */
+  .appseg { margin:0 0 10px; }
+  .capp { padding:8px 2px 9px; border-bottom:1px solid #1c2640; }
+  .capp .l1 { display:flex; align-items:center; gap:7px; }
+  .capp .l1 b { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .capp input[type=checkbox] { width:15px; height:15px; accent-color:var(--acc); flex-shrink:0; }
+  .capp small { display:block; color:var(--mut); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:2px 0 0 22px; }
+  .capp .tags { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0 0 22px; }
+  .capp .tags .bdg { font-size:10px; padding:0 6px; }
+  .capp .acts { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 0 22px; }
+  .capp .acts button { padding:3px 9px; font-size:11.5px; }
+  .capp .acts button.danger { border-color:#5b2323; color:#fca5a5; }
+  .capp.off b { color:var(--mut); text-decoration:line-through; }
+  .cgrp { display:flex; align-items:baseline; gap:6px; margin:14px 0 2px; }
+  .cgrp h4 { margin:0; font-size:12.5px; }
+  .cgrp .n { font-size:11px; color:var(--mut); }
+  .cnote { font-size:11.5px; color:var(--mut); margin:0 0 4px; }
+  #bulkbar { display:none; position:sticky; top:0; z-index:2; background:var(--card2); border:1px solid var(--line); border-radius:10px; padding:7px 9px; margin-bottom:8px; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px; }
+  #bulkbar.on { display:flex; }
+  #bulkbar button { padding:3px 9px; font-size:11.5px; }
+  .warnbox { background:#2a2210; border:1px solid #5b4a1d; color:#fcd34d; border-radius:10px; padding:8px 10px; font-size:12px; margin-bottom:8px; }
+  /* teclado da TV aberto */
+  #imebar { display:none; position:absolute; left:50%; bottom:18px; transform:translateX(-50%); width:min(560px, calc(100% - 28px)); background:rgba(12,20,40,.97); border:1px solid var(--ok); border-radius:14px; padding:12px 14px; box-shadow:0 12px 40px rgba(0,0,0,.55); z-index:6; }
+  #imebar.on { display:block; }
+  #imebar .ih { display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:8px; }
+  #imebar .ih span { color:var(--mut); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #imebar .ih button { padding:2px 9px; font-size:12px; }
+  #imein { width:100%; font-size:17px; padding:10px 12px; border-radius:10px; border:1px solid var(--ok); background:#070b16; color:var(--fg); box-shadow:0 0 0 3px rgba(34,197,94,.14); }
+  #imebar .ik { font-size:11px; color:var(--mut); margin-top:6px; }
   #diagout { display:none; margin-top:10px; max-height:420px; overflow:auto; background:#070b16; border:1px solid var(--line); border-radius:10px; padding:10px; font:11.5px/1.45 ui-monospace,Consolas,monospace; color:#cbd5e1; white-space:pre-wrap; word-break:break-word; }
 
   /* ---------- área de trabalho ---------- */
@@ -159,6 +191,56 @@
   .stagearea { position:relative; }
   @media (max-width: 1350px) { .tools { position:absolute; right:252px; top:0; bottom:0; z-index:5; box-shadow:-10px 0 30px rgba(0,0,0,.45); } }
   @media (max-width: 900px) { .clients { width:220px; } .remote-col { width:220px; } }
+  #screen { touch-action:none; }
+  .mnav { display:none; }
+
+  /* ---------- celular: uma coisa por vez (Clientes / TV / Ferramentas) com barra embaixo ---------- */
+  @media (max-width: 760px) {
+    body { height:100dvh; }
+    .top { height:48px; padding:0 12px; gap:10px; }
+    .logo { font-size:15px; } .logo small { display:none; }
+    .srv #srvtxt { display:none; }
+    .app { flex-direction:column; position:relative; }
+    .clients, .work { display:none; width:100%; border:0; }
+    body[data-mv="list"] .clients { display:flex; flex:1; min-height:0; }
+    body[data-mv="tv"] .work, body[data-mv="tools"] .work { display:flex; flex:1; min-height:0; }
+    .clients .head { padding:12px 12px 8px; }
+    .clients input { font-size:16px; }
+    .dev { padding:12px; }
+    .devhead { padding:8px 10px; gap:8px; }
+    .devhead .num { min-width:58px; height:44px; font-size:18px; }
+    .devhead .title b { font-size:15px; }
+    .devhead .title .sub { font-size:11.5px; }
+    .tools-btns { margin-left:0; width:100%; flex-wrap:nowrap; overflow-x:auto; padding-bottom:2px; scrollbar-width:none; }
+    .tools-btns::-webkit-scrollbar { display:none; }
+    .tools-btns > * { flex-shrink:0; font-size:12.5px; padding:6px 10px; }
+    #toolsbtn { display:none; }
+    .stagearea { flex-direction:column; overflow-y:auto; overflow-x:hidden; }
+    body[data-mv="tv"] .screenwrap { flex:none; width:100%; aspect-ratio:16/9; padding:6px; position:sticky; top:0; z-index:3; background:#0a1020; border-bottom:1px solid var(--line); }
+    .deskonly { display:none; }
+    body[data-mv="tv"] .remote-col { width:100%; border-left:0; border-top:1px solid var(--line); overflow:visible; padding:12px 14px 20px; }
+    .remote { max-width:440px; margin:0 auto; gap:14px; }
+    .k { height:46px; font-size:13px; }
+    .dgrid .k { height:60px; }
+    .rtext input { font-size:16px; }
+    body[data-mv="tv"] .tools { display:none !important; }
+    body[data-mv="tools"] .screenwrap, body[data-mv="tools"] .remote-col { display:none; }
+    body[data-mv="tools"] .tools { display:flex !important; position:static; width:100%; flex:1; min-height:0; box-shadow:none; border:0; }
+    .tabs button { padding:12px 8px; font-size:13.5px; }
+    .pane { padding:12px; }
+    .pane input, .pane select, .pane textarea { font-size:16px; }
+    #diagout { max-height:55vh; }
+    .mnav { display:flex; flex-shrink:0; height:calc(58px + env(safe-area-inset-bottom)); padding-bottom:env(safe-area-inset-bottom); background:var(--panel); border-top:1px solid var(--line); }
+    .mnav button { flex:1; border:0; border-radius:0; background:none; color:var(--mut); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; font-size:11.5px; padding:6px 0; }
+    .mnav button svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+    .mnav button.on { color:var(--fg); background:none; box-shadow:inset 0 2px 0 var(--acc); }
+    .mnav button:disabled { opacity:.35; }
+    #imebar { position:fixed; left:8px; right:8px; bottom:calc(66px + env(safe-area-inset-bottom)); transform:none; width:auto; }
+    #imein { font-size:17px; }
+    #toasts { bottom:calc(70px + env(safe-area-inset-bottom)); width:calc(100% - 24px); align-items:center; }
+    #login form, .modal form { width:min(360px, 92vw); }
+    .modal textarea, .modal input { font-size:16px; }
+  }
 </style>
 </head>
 <body>
@@ -231,6 +313,11 @@
         <div id="placeholder"><div class="big">📺</div>Selecione um cliente na lista para ver a TV.</div>
         <img id="screen" tabindex="0" style="display:none" alt="">
         <canvas id="treeov"></canvas>
+        <div id="imebar">
+          <div class="ih"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><b>A TV está pedindo texto</b><span id="imehint"></span><button onclick="imeHide(true)" title="Esconder (o teclado da TV continua aberto)">✕</button></div>
+          <input id="imein" autocomplete="off" spellcheck="false" placeholder="Digite aqui: cada tecla vai direto para a TV" onkeydown="imeKey(event)">
+          <div class="ik">Enter confirma · Backspace apaga · setas andam na TV · Esc fecha o teclado da TV · Ctrl+V cola</div>
+        </div>
       </div>
 
       <div class="remote-col">
@@ -280,7 +367,7 @@
               <button class="k" onclick="send({type:'openSettings',action:'android.settings.WIFI_SETTINGS'})" title="Abrir Wi‑Fi da TV">Wi‑Fi</button>
             </div>
           </div>
-          <div class="hint" style="font-size:11px">Atalhos com o mouse fora dos campos: setas, Enter = OK, Esc = voltar, H = início, M = menu, espaço = play, + / − = volume.</div>
+          <div class="hint deskonly" style="font-size:11px">Atalhos com o mouse fora dos campos: setas, Enter = OK, Esc = voltar, H = início, M = menu, espaço = play, + / − = volume.</div>
         </div>
       </div>
 
@@ -337,10 +424,15 @@
         </div>
 
         <div class="pane" id="apps">
+          <div class="seg appseg" id="appseg">
+            <button data-m="tv" class="on">Apps da TV</button>
+            <button data-m="all">🧹 Limpeza (todos)</button>
+          </div>
           <div class="row" style="margin-bottom:8px">
             <input id="appq" class="grow" placeholder="🔎 Filtrar apps" oninput="renderApps()">
-            <button onclick="send({type:'apps'})" title="Atualizar lista">↻</button>
+            <button onclick="refreshApps()" title="Atualizar lista">↻</button>
           </div>
+          <div id="bulkbar"><span id="bulkn"></span><button onclick="bulk('disable')">Desativar</button><button class="danger" onclick="bulk('remove')">Remover</button><button onclick="appSel.clear();renderApps()">Limpar</button></div>
           <div id="applist" class="hint">Abrindo…</div>
         </div>
 
@@ -397,6 +489,11 @@
     </div>
   </section>
 </div>
+<nav class="mnav" id="mnav">
+  <button data-v="list"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>Clientes</button>
+  <button data-v="tv"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="13" rx="2"/><path d="M8 21h8M12 18v3"/></svg>TV e controle</button>
+  <button data-v="tools"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>Ferramentas</button>
+</nav>
 <div id="drop">Solte o APK para instalar na TV</div>
 <div id="toasts"></div>
 
@@ -456,6 +553,8 @@ function connect() {
       drawTree();
     }
     else if (m.type === 'appIcon') { if (m.icon) { const im = new Image(); im.onload = () => { appIcons[m.pkg] = im; drawTree(); }; im.src = 'data:image/png;base64,' + m.icon; } }
+    else if (m.type === 'allApps') { allApps = m.list || []; allMeta = { me: m.me, adb: m.adb }; if (appMode === 'all') renderApps(); }
+    else if (m.type === 'ime') onIme(m);
     else if (m.type === 'diag' || m.type === 'shellOut') {
       const o = $('diagout'); o.style.display = 'block';
       o.textContent = m.type === 'diag' ? m.text : `$ ${m.cmd}\n${m.out || '(sem saída)'}`;
@@ -695,7 +794,9 @@ function send(cmd) {
 }
 function watch(id) {
   current = id; ws.send(JSON.stringify({ type: 'watch', id }));
-  apps = []; renderApps();
+  apps = []; allApps = null; appSel.clear(); renderApps();
+  imeWasOpen = false; imeHide(false);
+  if (appMode === 'all') refreshApps();
   filePath = ''; fileRoot = ''; if ($('filelist')) $('filelist').textContent = 'Clique em Arquivos para abrir.';
   treeNodes = []; if (treeOn) drawTree();
   $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">⏳</div>Conectando na TV…';
@@ -725,7 +826,7 @@ function devCard(d) {
         : `<span class="bdg ${d.accessibility !== false ? 'ok' : 'bad'}" title="Controle (Acessibilidade)">controle ${d.accessibility !== false ? '✓' : '✗'}</span>`,
       d.adb === 'ativo' ? '<span class="bdg ok" title="Modo avançado">avançado ✓</span>' : ''
     ].join('') : `<span class="bdg">offline · ${esc(ago(d.lastSeen))}</span>`}</div></div>`;
-  div.onclick = () => watch(d.id);
+  div.onclick = () => { watch(d.id); if (isMobile()) mview('tv'); };
   return div;
 }
 function renderDevices() {
@@ -761,7 +862,7 @@ function renderHead() {
   $('devname').textContent = (d.client || 'Sem nome') + '  ✏';
   $('devsub').innerHTML = `<span class="dot ${online ? 'on' : 'off'}" style="width:8px;height:8px"></span> ${online ? 'Online' : 'Offline ' + esc(ago(d.lastSeen))} · ${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app v' + d.agentVersion].filter(Boolean).join(' · '))}`;
   if (!online) { $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">💤</div>Esta TV está desligada ou sem internet.<br><span class="hint">Ela aparece aqui sozinha quando ligar.</span>'; }
-  const old = !d.agentVersion || parseFloat(d.agentVersion) < 2.2;
+  const old = !d.agentVersion || parseFloat(d.agentVersion) < 2.3;
   $('perms').innerHTML = !online ? 'TV offline.' : [
     accRow(d),
     permRow(!!d.capturing, 'Ver a tela', 'Passo 2 do app, ou peça daqui.', 'Pedir', "send({type:'startCapture'})"),
@@ -806,7 +907,124 @@ function saveClient(e) {
 }
 $('clientModal').addEventListener('click', (e) => { if (e.target.id === 'clientModal') closeModal(); });
 
+// ===== Limpeza: todos os apps, separados pelo que dá para tirar =====
+let appMode = 'tv', allApps = null, allMeta = {}, showEssential = false;
+const appSel = new Set();
+document.querySelectorAll('#appseg button').forEach((b) => b.onclick = () => {
+  appMode = b.dataset.m; document.querySelectorAll('#appseg button').forEach((x) => x.classList.toggle('on', x === b));
+  if (appMode === 'all' && !allApps) refreshApps(); else if (appMode === 'tv' && !apps.length) send({ type: 'apps' });
+  renderApps();
+});
+function refreshApps() {
+  if (appMode === 'all') { allApps = null; $('applist').innerHTML = '<span class="hint">Lendo todos os apps da TV (inclusive os de fábrica)…</span>'; send({ type: 'allApps' }); }
+  else send({ type: 'apps' });
+}
+const CORE_RE = /^(android$|com\.android\.(providers\.|server\.|systemui|settings|tv\.settings|packageinstaller|permissioncontroller|externalstorage|documentsui|keychain|certinstaller|location|bluetooth|networkstack|wifi|webview|inputdevices|shell|se$|nfc|phone|mms\.service|proxyhandler|pacprocessor|captiveportallogin|vpndialogs|statementservice|storagemanager|sharedstoragebackup|backupconfirm|localtransport|wallpaperbackup|dynsystem|ext\.|modulemetadata|cellbroadcast|carrierconfig|tethering|defcontainer|mtp|media|frameworkpackagestubs|tv\.frameworkpackagestubs|bips|printspooler|managedprovisioning|emergency|smspush|stk|ims|telephony|simappdialog|companiondevicemanager|soundpicker|intentresolver|timezone|apex|inputmethod|wallpapercropper|backup|permission|resolver|htmlviewer|sdksandbox|healthconnect|rkupdateservice)|com\.google\.android\.(gms|gsf|webview|packageinstaller|permissioncontroller|ext\.|networkstack|modulemetadata|tv\.remote\.service|tvsetup|setupwraith|partnersetup|configupdater|onetimeinitializer|inputmethod|tts|overlay|apps\.tv\.launcherx|tvlauncher)|android\.)/;
+const RES_RE = /overlay|\.res(\.|$)|auto_generated|\.rro\b/i;
+const CHIP_RE = /^com\.(droidlogic|amlogic|softwinner|allwinner|rockchip|realtek|rtk|mediatek|mstar|hisilicon|hisi|aml|tcl|mitv|xiaomi|sony|lge|samsung|philips|tpv|skyworth|hisense)\b/i;
+const SUSPECT_RE = /adups|fota|otaapk|ota\.?update|\.ota\b|chensen|andoridxh|appstore|app\.?market|\.market\b|\.store$|ui\.lb\.|advert|\.ads?\b|cleaner|\.clean|boost|speedup|antivirus|virus|guard|push(service)?$/i;
+const OPTIONAL_RE = /youtube|netflix|amazon|primevideo|disney|globo|spotify|deezer|deskclock|gallery|music|browser|calendar|email|videos|play\.games|katniss|tvrecommendations|backdrop|airscreen|vlc|calculator|camera|fmradio|filemanager|soundrecorder|tvdfilemanager|xplore|aptoide|apkpure|downloader|kodi|weather|news|game/i;
+function appCat(a) {
+  if (a.pkg === allMeta.me) return 'me';
+  if (!a.inst) return 'off';
+  if (!a.on) return 'off';
+  if (a.homeNow || a.imeNow || (a.acc && a.pkg !== allMeta.me) || a.pers || ['android.uid.system', 'android.uid.phone', 'android.uid.bluetooth', 'android.uid.nfc', 'android.uid.shell', 'android.uid.networkstack', 'android.media', 'android.uid.se'].includes(a.uid)) return 'essential';
+  if (!a.sys) return a.admin ? 'suspect' : 'user';
+  if (RES_RE.test(a.pkg) || CORE_RE.test(a.pkg)) return 'essential';
+  if (SUSPECT_RE.test(a.pkg)) return 'suspect';
+  if (CHIP_RE.test(a.pkg)) return a.launch && OPTIONAL_RE.test(a.pkg + ' ' + a.label) ? 'optional' : 'essential';
+  if (OPTIONAL_RE.test(a.pkg + ' ' + a.label)) return 'optional';
+  if (/^com\.(android|google\.android)\./.test(a.pkg)) return a.launch ? 'optional' : 'care';
+  // de fábrica de marca desconhecida: bons suspeitos (propaganda, desligar o controle)
+  return a.launch || a.home ? 'suspect' : 'care';
+}
+const CATS = [
+  ['suspect', '⚠ Suspeitos de fábrica', 'Lojas, atualizadores, limpadores e apps de marca desconhecida. Costumam trazer propaganda e podem ser o que desliga o controle. Pode desativar (dá para reativar).'],
+  ['user', 'Instalados depois', 'Apps que alguém instalou. Pode desinstalar.'],
+  ['optional', 'Opcionais do sistema', 'Vêm de fábrica mas a TV funciona sem eles. Pode desativar.'],
+  ['off', 'Desativados / removidos', 'Já tirados. Dá para ativar ou restaurar.'],
+  ['care', 'Do sistema: só mexa se souber', 'Podem ser necessários para alguma função (som, rede, imagem). Se desativar e algo parar, reative aqui.'],
+  ['essential', 'Essenciais: não mexer', 'Sistema, teclado, tela inicial, Google e serviços da TV.'],
+];
+const mb = (n) => n ? (n / 1048576).toFixed(n > 10485760 ? 0 : 1) + ' MB' : '';
+function appRow(a, cat) {
+  const div = document.createElement('div');
+  div.className = 'capp' + (cat === 'off' ? ' off' : '');
+  const selectable = !['essential', 'me', 'off'].includes(cat);
+  const tags = [
+    a.sys ? '<span class="bdg">de fábrica</span>' : '<span class="bdg ok">instalado</span>',
+    !a.inst ? '<span class="bdg bad">removido</span>' : !a.on ? '<span class="bdg bad">desativado</span>' : '',
+    a.homeNow ? '<span class="bdg warn">tela inicial</span>' : '', a.imeNow ? '<span class="bdg warn">teclado</span>' : '',
+    a.acc ? '<span class="bdg warn">acessibilidade</span>' : '', a.admin ? '<span class="bdg bad">administrador</span>' : '',
+    a.upd ? '<span class="bdg">atualizado</span>' : '', a.size ? `<span class="bdg">${mb(a.size)}</span>` : ''
+  ].join('');
+  div.innerHTML = `<div class="l1">${selectable ? '<input type="checkbox">' : '<span style="width:15px"></span>'}<b></b></div><small></small><div class="tags">${tags}</div><div class="acts"></div>`;
+  div.querySelector('b').textContent = a.label; div.querySelector('small').textContent = a.pkg + (a.v ? ' · ' + a.v : '');
+  const cb = div.querySelector('input'); if (cb) { cb.checked = appSel.has(a.pkg); cb.onchange = () => { cb.checked ? appSel.add(a.pkg) : appSel.delete(a.pkg); updBulk(); }; }
+  const acts = div.querySelector('.acts');
+  const btn = (txt, fn, cls) => { const b = document.createElement('button'); b.textContent = txt; if (cls) b.className = cls; b.onclick = fn; acts.appendChild(b); };
+  if (cat === 'me') { acts.innerHTML = '<span class="hint">App de suporte (este).</span>'; return div; }
+  if (!a.inst) btn('Restaurar', () => pkgAct(a, 'restore'));
+  else if (!a.on) { btn('Ativar de novo', () => pkgAct(a, 'enable')); if (a.sys) btn('Remover', () => pkgAct(a, 'remove'), 'danger'); }
+  else if (cat !== 'essential' || showEssential) {
+    if (a.sys) { btn('Desativar', () => pkgAct(a, 'disable')); btn('Remover', () => pkgAct(a, 'remove'), 'danger'); }
+    else btn('Desinstalar', () => pkgAct(a, 'remove'), 'danger');
+    if (a.admin) btn('Tirar admin', () => pkgAct(a, 'unadmin'));
+    btn('Parar', () => pkgAct(a, 'stop'));
+  }
+  if (a.inst) btn('Ver na TV', () => pkgAct(a, 'details'));
+  return div;
+}
+function pkgAct(a, action) {
+  const n = a.label;
+  const ask = {
+    disable: `Desativar “${n}”?\nEle some da TV e para de rodar. Dá para ativar de novo aqui.`,
+    remove: a.sys ? `Remover “${n}” da TV?\nÉ app de fábrica: ele some e para de rodar, mas continua guardado no sistema. Dá para restaurar aqui (ou volta se resetar a TV).`
+                  : `Desinstalar “${n}”?\nApaga o app e os dados dele.`,
+    unadmin: `Tirar o poder de administrador de “${n}”? Depois disso dá para desinstalar.`,
+  }[action];
+  if (ask && !confirm(ask)) return;
+  if (['disable', 'remove', 'enable', 'restore', 'unadmin'].includes(action) && !allMeta.adb && a.sys) toast('Sem Modo avançado: vou abrir a tela do app na TV para você clicar em Desativar com o controle.', 'info');
+  send({ type: 'pkgAction', action, pkg: a.pkg, sys: !!a.sys, label: n });
+}
+function bulk(action) {
+  const list = (allApps || []).filter((a) => appSel.has(a.pkg));
+  if (!list.length) return;
+  if (!allMeta.adb) return toast('Para fazer em vários de uma vez precisa do Modo avançado ativo na TV.', 'error');
+  const verb = action === 'disable' ? 'Desativar' : 'Remover';
+  if (!confirm(`${verb} ${list.length} app(s)?\n\n${list.map((a) => '• ' + a.label).join('\n')}\n\nDá para reativar/restaurar depois na Limpeza.`)) return;
+  list.forEach((a, i) => setTimeout(() => send({ type: 'pkgAction', action, pkg: a.pkg, sys: !!a.sys, label: a.label }), i * 900));
+  appSel.clear(); updBulk();
+}
+function updBulk() { const n = appSel.size; $('bulkbar').classList.toggle('on', n > 0 && appMode === 'all'); $('bulkn').textContent = n + ' selecionado(s):'; }
+function renderAll() {
+  const q = $('appq').value.toLowerCase(), el = $('applist');
+  if (!allApps) { el.innerHTML = '<span class="hint">Lendo todos os apps da TV…</span>'; return; }
+  el.innerHTML = '';
+  if (!allMeta.adb) el.insertAdjacentHTML('beforeend', '<div class="warnbox">Sem Modo avançado nesta TV: só dá para desinstalar apps instalados depois. Para desativar ou remover apps de fábrica, ative o Modo avançado (aba Liberar). Sem ele, “Desativar” abre a tela do app na TV para clicar com o controle.</div>');
+  const groups = {};
+  for (const a of allApps) {
+    if (q && !(a.label || '').toLowerCase().includes(q) && !a.pkg.includes(q)) continue;
+    const c = appCat(a); (groups[c] = groups[c] || []).push(a);
+  }
+  for (const [cat, title, note] of CATS) {
+    const arr = (groups[cat] || []).sort((x, y) => (x.label || '').localeCompare(y.label || ''));
+    if (!arr.length) continue;
+    const h = document.createElement('div'); h.className = 'cgrp';
+    h.innerHTML = `<h4>${title}</h4><span class="n">${arr.length}</span>`;
+    if (cat === 'essential') { const b = document.createElement('button'); b.style.cssText = 'margin-left:auto;padding:2px 8px;font-size:11px'; b.textContent = showEssential ? 'Esconder' : 'Mostrar'; b.onclick = () => { showEssential = !showEssential; renderApps(); }; h.appendChild(b); }
+    el.appendChild(h);
+    el.insertAdjacentHTML('beforeend', `<div class="cnote">${note}</div>`);
+    if (cat === 'essential' && !showEssential && !q) continue;
+    for (const a of arr) el.appendChild(appRow(a, cat));
+  }
+  const me = allApps.find((a) => a.pkg === allMeta.me);
+  if (!el.querySelector('.capp') && !el.querySelector('.cgrp')) el.insertAdjacentHTML('beforeend', '<span class="hint">Nenhum app encontrado.</span>');
+  updBulk();
+}
 function renderApps() {
+  if (appMode === 'all') return renderAll();
+  $('bulkbar').classList.remove('on');
   const q = $('appq').value.toLowerCase(), el = $('applist');
   const list = apps.filter((a) => !q || a.label.toLowerCase().includes(q) || a.pkg.includes(q));
   if (!apps.length) { el.innerHTML = '<span class="hint">Clique em ↻ para listar.</span>'; return; }
@@ -821,16 +1039,54 @@ function renderApps() {
     el.appendChild(row);
   }
 }
+// ===== teclado do computador quando a TV abre um campo de texto =====
+let imeDismissed = false, imeWasOpen = false;
+function onIme(m) {
+  const bar = $('imebar');
+  if (!m.open) { imeWasOpen = false; imeDismissed = false; bar.classList.remove('on'); return; }
+  if (!imeWasOpen) { imeDismissed = false; $('imein').value = ''; $('imein').resetLive(); }
+  imeWasOpen = true;
+  if (imeDismissed) return;
+  $('imehint').textContent = m.hint ? '· campo “' + m.hint + '”' : '';
+  $('imein').placeholder = m.text ? 'Já escrito na TV: ' + m.text + '  (continue digitando)' : 'Digite aqui: cada tecla vai direto para a TV';
+  const wasOn = bar.classList.contains('on');
+  bar.classList.add('on');
+  const ae = document.activeElement;
+  if (!wasOn && (!ae || ae === document.body || ae.id === 'screen' || !/INPUT|TEXTAREA|SELECT/.test(ae.tagName))) $('imein').focus();
+}
+function imeHide(user) { if (user) imeDismissed = true; $('imebar').classList.remove('on'); }
+function imeKey(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === 'Backspace') { if (!e.target.value) { e.preventDefault(); key('del'); } return; } // com texto: o "input" manda o apagar
+  const map = { Enter: 'enter', ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Escape: 'back' };
+  if (map[e.key]) { e.preventDefault(); key(map[e.key]); if (e.key === 'Escape') imeHide(false); }
+}
+liveInput($('imein'), () => true);
+liveInput($('txt'), () => liveType);
 function key(k) { send({ type: 'key', key: k }); if (treeOn) setTimeout(() => send({ type: 'tree' }), 350); flash(k); }
 function flash(k) { const b = document.querySelector(`#remote [data-k="${k}"]`); if (b) { b.classList.remove('pressed'); void b.offsetWidth; b.classList.add('pressed'); } }
 let liveType = false;
-function setLive(on) { liveType = on; $('txt').classList.toggle('liveon', on); $('txt').placeholder = on ? 'Digitação direta: o que você digitar vai para a TV' : 'Digite o texto para a TV'; $('txt').focus(); }
+function setLive(on) { liveType = on; if ($('txt').resetLive) $('txt').resetLive(); $('txt').classList.toggle('liveon', on); $('txt').placeholder = on ? 'Digitação direta: o que você digitar vai para a TV' : 'Digite o texto para a TV'; $('txt').focus(); }
 function txtKey(e) {
   if (!liveType) { if (e.key === 'Enter') { sendText(); e.preventDefault(); } return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === 'Backspace') { key('del'); e.preventDefault(); }
+  if (e.key === 'Backspace' && !e.target.value) { key('del'); e.preventDefault(); }
   else if (e.key === 'Enter') { key('enter'); e.preventDefault(); }
-  else if (e.key.length === 1) { send({ type: 'text', text: e.key }); e.preventDefault(); }
+  // as letras vão pelo evento "input" (liveInput), que funciona igual no PC e no celular
+}
+/** Manda para a TV a diferença do que foi digitado (letras, apagar, colar, corretor do celular). */
+function liveInput(el, active) {
+  let last = el.value;
+  el.addEventListener('input', () => {
+    const v = el.value;
+    if (!active()) { last = v; return; }
+    let i = 0; while (i < last.length && i < v.length && last[i] === v[i]) i++;
+    const dels = last.length - i, add = v.slice(i);
+    for (let k = 0; k < Math.min(dels, 60); k++) key('del');
+    if (add) send({ type: 'text', text: add });
+    last = v;
+  });
+  el.resetLive = () => { last = el.value; };
 }
 function sendText() { const t = $('txt').value; if (t) { send({ type: 'text', text: t }); $('txt').value = ''; } }
 function setQuality() { if (!current) return; const [max, q, fps] = $('qual').value.split(',').map(Number); send({ type: 'quality', max, q, fps }); }
@@ -855,11 +1111,13 @@ const img = $('screen');
 let down = null, lpTimer = null;
 const norm = (e) => { const r = img.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
 img.addEventListener('contextmenu', (e) => { e.preventDefault(); key('back'); });
-img.addEventListener('mousedown', (e) => {
-  if (e.button !== 0) return; img.focus(); const [x, y] = norm(e); down = { x, y, t: Date.now(), long: false };
+img.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return; e.preventDefault(); img.focus({ preventScroll: true }); const [x, y] = norm(e); down = { x, y, t: Date.now(), long: false };
+  try { img.setPointerCapture(e.pointerId); } catch {}
   lpTimer = setTimeout(() => { if (down) { down.long = true; send({ type: 'longpress', x, y }); } }, 600);
 });
-window.addEventListener('mouseup', (e) => {
+img.addEventListener('pointercancel', () => { clearTimeout(lpTimer); down = null; });
+window.addEventListener('pointerup', (e) => {
   if (!down) return; clearTimeout(lpTimer); const d = down; down = null; if (d.long) return;
   const [x, y] = norm(e);
   if (Math.hypot(x - d.x, y - d.y) < 0.015) send({ type: 'tap', x, y });
@@ -892,7 +1150,19 @@ function setProg(key, pct, label) {
   el.querySelector('.hint').textContent = `${label} – ${pct}%`; el.querySelector('i').style.width = pct + '%';
   if (pct >= 100) setTimeout(() => el.remove(), 4000);
 }
-function showTab(id) { const b = document.querySelector(`.tabs button[data-p="${id}"]`); if (b) b.click(); if ($('tools').classList.contains('hidden')) toggleTools(); }
+const isMobile = () => matchMedia('(max-width: 760px)').matches;
+function mview(v) {
+  document.body.dataset.mv = v;
+  document.querySelectorAll('#mnav button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+  if (v !== 'list') setTimeout(() => treeOn && drawTree(), 60);
+}
+document.querySelectorAll('#mnav button').forEach((b) => b.onclick = () => {
+  if (b.dataset.v !== 'list' && !current) { toast('Escolha um cliente primeiro', 'error'); return; }
+  mview(b.dataset.v);
+});
+mview('list');
+function showTab(id) {
+  if (isMobile()) { mview('tools'); } const b = document.querySelector(`.tabs button[data-p="${id}"]`); if (b) b.click(); if ($('tools').classList.contains('hidden')) toggleTools(); }
 function uploadAndInstall(file) {
   if (!current) return toast('Selecione um cliente antes de enviar', 'error');
   showTab('instp');

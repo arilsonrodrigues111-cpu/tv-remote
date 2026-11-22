@@ -123,7 +123,76 @@ public class RemoteAccessibility extends AccessibilityService {
                     || t == AccessibilityEvent.TYPE_VIEW_SCROLLED || t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
                 h.removeCallbacks(focusPush); h.postDelayed(focusPush, 140);
             }
+            if (t == AccessibilityEvent.TYPE_VIEW_FOCUSED || t == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+                    || t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                h.removeCallbacks(imeCheck); h.postDelayed(imeCheck, 350);
+            }
         } catch (Throwable ignored) {}
+    }
+
+    // ---------- teclado da TV aberto? (o painel abre a digitação pelo teclado do computador) ----------
+    static volatile boolean imeOpen = false;
+    static volatile String imeHint = "", imeText = "";
+    private final Runnable imeCheck = new Runnable() { public void run() {
+        try {
+            boolean kb = false;
+            try { for (AccessibilityWindowInfo w : getWindows()) if (w.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) { kb = true; break; } } catch (Throwable ignored) {}
+            AccessibilityNodeInfo f = null;
+            try { f = findFocus(AccessibilityNodeInfo.FOCUS_INPUT); } catch (Throwable ignored) {}
+            boolean edit = f != null && f.isEditable();
+            boolean open = kb || edit;
+            String hint = "", text = "";
+            if (edit) {
+                CharSequence hs = android.os.Build.VERSION.SDK_INT >= 26 ? f.getHintText() : null;
+                if (hs == null) hs = f.getContentDescription();
+                if (hs == null) { CharSequence id = f.getViewIdResourceName(); if (id != null) hs = id.toString().replaceAll(".*/", "").replace('_', ' '); }
+                hint = hs == null ? "" : hs.toString();
+                if (!f.isPassword() && f.getText() != null) text = f.getText().toString();
+                if (text.equals(hint)) text = "";
+            }
+            if (open != imeOpen || !hint.equals(imeHint)) {
+                imeOpen = open; imeHint = hint; imeText = text;
+                AgentService.imeChanged();
+            }
+        } catch (Throwable ignored) {}
+    }};
+
+    // ---------- mensagem do suporte por cima de qualquer app ----------
+    private View msgView;
+    private final Runnable msgHide = new Runnable() { public void run() { hideMessage(); } };
+    boolean showMessage(final String text) {
+        final boolean[] ok = { false };
+        final Object lock = new Object();
+        h.post(new Runnable() { public void run() {
+            try {
+                hideMessage();
+                android.view.WindowManager wm = (android.view.WindowManager) getSystemService(WINDOW_SERVICE);
+                View card = MessageActivity.card(RemoteAccessibility.this, text);
+                int w = Math.min(getResources().getDisplayMetrics().widthPixels - Ui.dp(RemoteAccessibility.this, 40), Ui.dp(RemoteAccessibility.this, 720));
+                android.view.WindowManager.LayoutParams lp = new android.view.WindowManager.LayoutParams(w,
+                        android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+                        android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                        android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                                | android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                        android.graphics.PixelFormat.TRANSLUCENT);
+                lp.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
+                lp.y = Ui.dp(RemoteAccessibility.this, 36);
+                wm.addView(card, lp);
+                msgView = card;
+                h.removeCallbacks(msgHide);
+                h.postDelayed(msgHide, MessageActivity.duration(text));
+                ok[0] = true;
+            } catch (Throwable e) { ok[0] = false; }
+            synchronized (lock) { lock.notifyAll(); }
+        }});
+        if (Looper.myLooper() == Looper.getMainLooper()) return true; // não dá para esperar na própria thread
+        synchronized (lock) { try { lock.wait(1500); } catch (InterruptedException ignored) {} }
+        return ok[0];
+    }
+    private void hideMessage() {
+        if (msgView == null) return;
+        try { ((android.view.WindowManager) getSystemService(WINDOW_SERVICE)).removeView(msgView); } catch (Throwable ignored) {}
+        msgView = null;
     }
 
     private final Runnable focusPush = new Runnable() { public void run() { try { AgentService.focusMoved(); } catch (Throwable ignored) {} } };
