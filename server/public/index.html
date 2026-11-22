@@ -67,6 +67,8 @@
   .bdg { font-size:11px; padding:1px 7px; border-radius:20px; background:#1c2742; color:var(--mut); border:1px solid var(--line); }
   .bdg.ok { color:#86efac; border-color:#1f5135; background:#11281c; }
   .bdg.bad { color:#fca5a5; border-color:#5b2323; background:#2a1414; }
+  .bdg.warn { color:#fcd34d; border-color:#5b4a1d; background:#2a2210; }
+  #diagout { display:none; margin-top:10px; max-height:420px; overflow:auto; background:#070b16; border:1px solid var(--line); border-radius:10px; padding:10px; font:11.5px/1.45 ui-monospace,Consolas,monospace; color:#cbd5e1; white-space:pre-wrap; word-break:break-word; }
 
   /* ---------- área de trabalho ---------- */
   .work { flex:1; display:flex; flex-direction:column; min-width:0; }
@@ -359,6 +361,20 @@
 
         <div class="pane" id="more">
           <div class="sec">
+            <h3>🩺 Diagnóstico da TV</h3>
+            <div class="hint" style="margin-bottom:8px">Mostra a situação do controle, os erros guardados no app e o log da TV (completo com o Modo avançado).</div>
+            <div class="row" style="flex-wrap:wrap">
+              <button class="pri" onclick="runDiag()">Gerar diagnóstico</button>
+              <button onclick="send({type:'fixAcc'})">Religar o controle</button>
+              <button onclick="copyDiag()">Copiar</button>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <input id="shcmd" class="grow" onkeydown="if(event.key==='Enter')runShell()" placeholder="Comando na TV (Modo avançado), ex.: dumpsys accessibility">
+              <button onclick="runShell()">Rodar</button>
+            </div>
+            <pre id="diagout"></pre>
+          </div>
+          <div class="sec">
             <h3>💬 Mensagem na tela da TV</h3>
             <div class="row"><input id="toast" class="grow" placeholder="Texto para aparecer na TV"><button onclick="var t=$('toast').value;if(t){send({type:'toast',text:t});$('toast').value=''}">Mostrar</button></div>
           </div>
@@ -440,6 +456,11 @@ function connect() {
       drawTree();
     }
     else if (m.type === 'appIcon') { if (m.icon) { const im = new Image(); im.onload = () => { appIcons[m.pkg] = im; drawTree(); }; im.src = 'data:image/png;base64,' + m.icon; } }
+    else if (m.type === 'diag' || m.type === 'shellOut') {
+      const o = $('diagout'); o.style.display = 'block';
+      o.textContent = m.type === 'diag' ? m.text : `$ ${m.cmd}\n${m.out || '(sem saída)'}`;
+      o.scrollTop = 0; showTab('more'); toast(m.type === 'diag' ? 'Diagnóstico recebido' : 'Comando executado', 'ok');
+    }
     else if (m.type === 'files') { filePath = m.path; fileRoot = m.root || fileRoot; renderFiles(m.list); }
     else if (m.type === 'downloadReady') {
       log(`Arquivo pronto: ${m.name}`, 'ok'); toast('Baixando ' + m.name, 'ok');
@@ -700,7 +721,8 @@ function devCard(d) {
     <div class="sub">${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'v' + d.agentVersion].filter(Boolean).join(' · '))}</div>
     <div class="badges">${online ? [
       `<span class="bdg ${d.capturing ? 'ok' : 'bad'}" title="Ver a tela">tela ${d.capturing ? '✓' : '✗'}</span>`,
-      `<span class="bdg ${d.accessibility !== false ? 'ok' : 'bad'}" title="Controle (Acessibilidade)">controle ${d.accessibility !== false ? '✓' : '✗'}</span>`,
+      d.acc === 'travado' ? '<span class="bdg warn" title="O Android desligou o controle por dentro">controle travado</span>'
+        : `<span class="bdg ${d.accessibility !== false ? 'ok' : 'bad'}" title="Controle (Acessibilidade)">controle ${d.accessibility !== false ? '✓' : '✗'}</span>`,
       d.adb === 'ativo' ? '<span class="bdg ok" title="Modo avançado">avançado ✓</span>' : ''
     ].join('') : `<span class="bdg">offline · ${esc(ago(d.lastSeen))}</span>`}</div></div>`;
   div.onclick = () => watch(d.id);
@@ -739,9 +761,9 @@ function renderHead() {
   $('devname').textContent = (d.client || 'Sem nome') + '  ✏';
   $('devsub').innerHTML = `<span class="dot ${online ? 'on' : 'off'}" style="width:8px;height:8px"></span> ${online ? 'Online' : 'Offline ' + esc(ago(d.lastSeen))} · ${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app v' + d.agentVersion].filter(Boolean).join(' · '))}`;
   if (!online) { $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">💤</div>Esta TV está desligada ou sem internet.<br><span class="hint">Ela aparece aqui sozinha quando ligar.</span>'; }
-  const old = !d.agentVersion || parseFloat(d.agentVersion) < 1.9;
+  const old = !d.agentVersion || parseFloat(d.agentVersion) < 2.1;
   $('perms').innerHTML = !online ? 'TV offline.' : [
-    permRow(d.accessibility !== false, 'Controle', 'Só a pessoa liga na TV (passo 1 do app).'),
+    accRow(d),
     permRow(!!d.capturing, 'Ver a tela', 'Passo 2 do app, ou peça daqui.', 'Pedir', "send({type:'startCapture'})"),
     permRow(!!d.canInstall, 'Instalar apps', 'Para instalar APKs na TV.', 'Liberar', "send({type:'enableInstall'})"),
     permRow(d.canFiles !== false && d.canFiles !== undefined, 'Arquivos', 'Para enviar e baixar arquivos.', 'Liberar', "send({type:'enableFiles'})"),
@@ -754,6 +776,14 @@ function renderHead() {
     d.storage && 'Armazenamento: ' + esc(d.storage), 'App versão ' + esc(d.agentVersion || '?'), d.ip && 'IP: ' + esc(d.ip),
     d.notes && '<br><b>Observações:</b> ' + esc(d.notes).replace(/\n/g, '<br>')
   ].filter(Boolean).join('<br>');
+}
+function runDiag() { const o = $('diagout'); o.style.display = 'block'; o.textContent = 'Pedindo o diagnóstico para a TV…'; send({ type: 'diag' }); }
+function runShell() { const c = $('shcmd').value.trim(); if (!c) return; const o = $('diagout'); o.style.display = 'block'; o.textContent = '$ ' + c + '\n…'; send({ type: 'shell', cmd: c }); }
+function copyDiag() { const t = $('diagout').textContent; if (!t) return toast('Gere o diagnóstico primeiro', 'error'); navigator.clipboard.writeText(t).then(() => toast('Copiado', 'ok'), () => toast('Não consegui copiar', 'error')); }
+function accRow(d) {
+  if (d.acc === 'travado') return permRow(false, 'Controle', '<span style="color:var(--warn)">Travado: o Android desligou por dentro.</span> ' + (d.selfFix ? 'Religando sozinho…' : 'Peça para desligar e ligar a chave TechSolutions em Acessibilidade.'), d.selfFix ? 'Religar' : 'Abrir', d.selfFix ? "send({type:'fixAcc'})" : "send({type:'openSettings',action:'android.settings.ACCESSIBILITY_SETTINGS'})");
+  if (d.accessibility === false) return permRow(false, 'Controle', d.selfFix ? 'Desligado. Dá para ligar daqui (Modo avançado).' : 'Só a pessoa liga na TV (passo 1 do app).', d.selfFix ? 'Ligar' : 'Abrir', d.selfFix ? "send({type:'fixAcc'})" : "send({type:'openSettings',action:'android.settings.ACCESSIBILITY_SETTINGS'})");
+  return permRow(true, 'Controle', 'Funcionando.');
 }
 function enableAll() { send({ type: 'enableAll' }); setTimeout(() => send({ type: 'adbConnect' }), 400); toast('Liberando tudo na TV…'); }
 

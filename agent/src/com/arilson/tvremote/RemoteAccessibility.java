@@ -97,24 +97,36 @@ public class RemoteAccessibility extends AccessibilityService {
 
     @Override protected void onServiceConnected() {
         instance = this;
-        AgentService.start(this);
-        AgentService.sendInfoIfConnected();
+        try { AccGuard.connected(); } catch (Throwable ignored) {}
+        try { AgentService.start(this); } catch (Throwable ignored) {}
+        try { AgentService.accChanged(true); } catch (Throwable ignored) {}
     }
 
-    @Override public void onDestroy() { instance = null; super.onDestroy(); }
-    @Override public boolean onUnbind(Intent intent) { instance = null; return super.onUnbind(intent); }
+    @Override public void onDestroy() {
+        if (instance == this) { instance = null; gone("destruído"); }
+        super.onDestroy();
+    }
+    @Override public boolean onUnbind(Intent intent) {
+        if (instance == this) { instance = null; gone("desvinculado"); }
+        return super.onUnbind(intent);
+    }
+    private void gone(String why) {
+        try { AccGuard.lost(why); AgentService.accChanged(false); } catch (Throwable ignored) {}
+    }
     @Override public void onInterrupt() {}
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {
-        if (System.currentTimeMillis() < autoAcceptUntil) scheduleScan(300);
-        int t = e.getEventType();
-        if (t == AccessibilityEvent.TYPE_VIEW_FOCUSED || t == AccessibilityEvent.TYPE_VIEW_SELECTED
-                || t == AccessibilityEvent.TYPE_VIEW_SCROLLED || t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            h.removeCallbacks(focusPush); h.postDelayed(focusPush, 140);
-        }
+        try {
+            if (System.currentTimeMillis() < autoAcceptUntil) scheduleScan(300);
+            int t = e.getEventType();
+            if (t == AccessibilityEvent.TYPE_VIEW_FOCUSED || t == AccessibilityEvent.TYPE_VIEW_SELECTED
+                    || t == AccessibilityEvent.TYPE_VIEW_SCROLLED || t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                h.removeCallbacks(focusPush); h.postDelayed(focusPush, 140);
+            }
+        } catch (Throwable ignored) {}
     }
 
-    private final Runnable focusPush = new Runnable() { public void run() { AgentService.focusMoved(); } };
+    private final Runnable focusPush = new Runnable() { public void run() { try { AgentService.focusMoved(); } catch (Throwable ignored) {} } };
 
     private boolean scanPending = false;
     private void scheduleScan(long delay) {
@@ -125,7 +137,8 @@ public class RemoteAccessibility extends AccessibilityService {
             long now = System.currentTimeMillis();
             if (now >= autoAcceptUntil) return;
             if (now < autoAcceptNotBefore) { scheduleScan(autoAcceptNotBefore - now + 50); return; }
-            boolean clicked = scanAndAccept();
+            boolean clicked;
+            try { clicked = scanAndAccept(); } catch (Throwable t) { clicked = false; }
             if (clicked && (projectionMode || debugMode)) { cancelAutoAccept(); return; }
             if (clicked && permMode) { cancelAutoAccept(); return; } // um clique só no diálogo de captura
             scheduleScan(clicked ? 1500 : 700);

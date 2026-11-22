@@ -102,14 +102,48 @@ public class AgentService extends Service {
             a.run("appops set " + me + " REQUEST_INSTALL_PACKAGES allow");
             a.run("pm grant " + me + " android.permission.READ_EXTERNAL_STORAGE; pm grant " + me + " android.permission.WRITE_EXTERNAL_STORAGE");
             a.run("dumpsys deviceidle whitelist +" + me + " >/dev/null 2>&1");
-            String svc = me + "/.RemoteAccessibility";
-            a.run("s=$(settings get secure enabled_accessibility_services); case \"$s\" in *" + svc + "*) ;; null|'') settings put secure enabled_accessibility_services " + svc + " ;; *) settings put secure enabled_accessibility_services \"$s:" + svc + "\" ;; esac; settings put secure accessibility_enabled 1");
+            // permissão do sistema para o app religar o controle sozinho (vale mesmo depois de desligar a depuração)
+            a.run("pm grant " + me + " android.permission.WRITE_SECURE_SETTINGS");
+            // só mexe na acessibilidade se o controle NÃO estiver rodando (antes reescrevia sempre e podia derrubar)
+            if (!AccGuard.running()) AccGuard.repair(s, "modo avançado", true);
             status("ok", "Modo avançado ativo: controle total liberado");
         }
         s.sendInfo();
     }
 
     static void sendInfoIfConnected() { if (instance != null) instance.sendInfo(); }
+
+    /** O controle (acessibilidade) ligou ou caiu: avisa o painel na hora. */
+    static void accChanged(boolean on) {
+        final AgentService s = instance;
+        if (s == null) return;
+        s.main.post(new Runnable() { public void run() { s.sendInfo(); } });
+        if (!on) status("warn", "O Android desligou o controle da TV. Tentando religar…");
+        else status("ok", "Controle da TV ligado");
+    }
+
+    /** Um erro foi protegido (o app não fechou): avisa o painel, com no máximo 1 aviso a cada 15 s. */
+    private static long lastErrReport = 0;
+    static void reportError() {
+        AgentService s = instance;
+        if (s == null || !s.connected) return;
+        long now = System.currentTimeMillis();
+        if (now - lastErrReport < 15000) return;
+        lastErrReport = now;
+        status("warn", "O app da TV teve um erro e se recuperou sozinho (" + Diag.lastError + "). Detalhes em Mais › Diagnóstico.");
+        Diag.markReported();
+    }
+
+    /** Vigia o controle a cada 8 s: se o Android derrubou, religa sozinho (quando tem permissão/modo avançado). */
+    private String lastAccState = "";
+    private final Runnable accWatch = new Runnable() { public void run() {
+        try {
+            String st = AccGuard.state(AgentService.this);
+            if (!"on".equals(st)) AccGuard.repair(AgentService.this, "automático", false);
+            if (!st.equals(lastAccState)) { lastAccState = st; sendInfo(); }
+        } catch (Throwable ignored) {}
+        main.postDelayed(this, 8000);
+    }};
 
     private static int pendingCode; private static Intent pendingData;
     static void deliverProjection(Context c, int code, Intent data) {
@@ -139,10 +173,13 @@ public class AgentService extends Service {
         readScreenSize();
         connect();
         AdbShell.get(this).ensure();
+        main.postDelayed(accWatch, 6000);
         if (pendingData != null) { Intent d = pendingData; pendingData = null; onProjectionGranted(pendingCode, d); }
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        // startForegroundService() exige startForeground() de novo a cada chamada; sem isso alguns Android fecham o app
+        try { startForegroundNotif(); } catch (Throwable ignored) {}
         if (intent != null && intent.getBooleanExtra("reconnect", false)) { retry = 0; reconnectNow(); }
         return START_STICKY;
     }
@@ -188,6 +225,7 @@ public class AgentService extends Service {
         try { if (ws != null) ws.cancel(); } catch (Exception ignored) {}
         connected = false;
         main.removeCallbacksAndMessages(null);
+        main.postDelayed(accWatch, 6000);
         connect();
     }
     private void scheduleReconnect() {
@@ -208,10 +246,11 @@ public class AgentService extends Service {
             connected = true; retry = 0; connState = "conectado";
             sendInfo();
             main.removeCallbacks(heartbeat); main.postDelayed(heartbeat, 15000);
+            if (Diag.unreported) main.postDelayed(new Runnable() { public void run() { lastErrReport = 0; reportError(); } }, 1500);
         }
         @Override public void onMessage(WebSocket w, final String text) {
             main.post(new Runnable() { public void run() {
-                try { handle(new JSONObject(text)); } catch (Exception e) { status("error", "Comando falhou: " + e); }
+                try { handle(new JSONObject(text)); } catch (Throwable e) { Diag.event("comando falhou: " + e); status("error", "Comando falhou: " + e); }
             }});
         }
         @Override public void onClosing(WebSocket w, int code, String reason) { w.close(1000, null); }
@@ -237,6 +276,8 @@ public class AgentService extends Service {
                     .put("android", Build.VERSION.RELEASE)
                     .put("sdk", Build.VERSION.SDK_INT)
                     .put("accessibility", RemoteAccessibility.enabled())
+                    .put("acc", AccGuard.state(this))
+                    .put("selfFix", AccGuard.canWriteSecure(this) || AdbShell.isReady())
                     .put("capturing", projection != null)
                     .put("canInstall", Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls())
                     .put("canFiles", canFiles(this))
@@ -293,9 +334,21 @@ public class AgentService extends Service {
             case "enableAll": enableAll(); return;
             case "openSettings": RemoteAccessibility.startActivityAny(this, new Intent(m.getString("action"))); return;
             case "adbConnect": AdbShell.get(this).ensure(); status("info", "Modo avançado: " + AdbShell.state); return;
-            case "shell":
+            case "shell": {
                 if (!AdbShell.isReady()) { status("error", "Modo avançado não está ativo"); return; }
-                AdbShell.get(this).run(m.getString("cmd")); return;
+                final String cmd = m.getString("cmd");
+                boolean ok = AdbShell.get(this).exec(cmd, new AdbShell.Result() { public void done(String out) {
+                    try { sendJson(new JSONObject().put("type", "shellOut").put("cmd", cmd).put("out", Diag.tail(out, 60000))); } catch (Exception ignored) {}
+                }});
+                if (!ok) AdbShell.get(this).run(cmd);
+                return;
+            }
+            case "diag": sendDiag(); return;
+            case "fixAcc":
+                if (AccGuard.running()) { status("ok", "O controle já está funcionando"); return; }
+                if (!AccGuard.repair(this, "pedido do painel", true))
+                    status("error", "Não dá para religar sozinho sem o Modo avançado. Peça para desligar e ligar a chave TechSolutions em Acessibilidade.");
+                return;
         }
         if ("key".equals(type) && adbKey(m.getString("key"))) return;
         if ("text".equals(type) && acc == null && AdbShell.isReady()) { adbText(m.getString("text")); return; }
@@ -331,7 +384,7 @@ public class AgentService extends Service {
                     .put("app", appLabel(acc.foregroundPkg())).put("pkg", lastPkg).put("theme", appTheme(lastPkg))
                     .put("w", screenW).put("h", screenH)
                     .put("focus", focusJson(acc.realFocus(screenW, screenH))));
-        } catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
     }
     /** Chamado pela acessibilidade quando o foco muda: manda o desenho na hora (se o painel estiver olhando). */
     static void focusMoved() {
@@ -344,6 +397,25 @@ public class AgentService extends Service {
     private static JSONArray focusJson(int[] f) {
         if (f == null) return null;
         JSONArray a = new JSONArray(); for (int v : f) a.put(v); return a;
+    }
+
+    /** Relatório do botão "Diagnóstico" do painel (com log do sistema quando o Modo avançado está ativo). */
+    private void sendDiag() {
+        status("info", "Montando o diagnóstico da TV…");
+        new Thread(new Runnable() { public void run() {
+            final String local = Diag.report(AgentService.this);
+            if (!AdbShell.isReady()) { sendDiagText(local + "\n(Sem Modo avançado: o log completo do sistema não está disponível.)\n"); return; }
+            String cmd = "echo '— SERVIÇOS DE ACESSIBILIDADE (sistema)'; dumpsys accessibility 2>&1 | grep -iE 'Bound services|Enabled services|Binding services|Crashed services|tvremote|isEnabled|touchExploration' | head -40; "
+                    + "echo; echo '— LOG DO SISTEMA (trechos sobre o app e a acessibilidade)'; "
+                    + "logcat -d -v time -t 6000 2>&1 | grep -iE 'tvremote|TechSolutions|accessib|AndroidRuntime|FATAL|lowmemory|am_kill|am_crash|am_anr|died' | tail -220";
+            boolean ok = AdbShell.get(AgentService.this).exec(cmd, new AdbShell.Result() { public void done(String out) {
+                sendDiagText(local + "\n" + out);
+            }});
+            if (!ok) sendDiagText(local);
+        }}, "diag").start();
+    }
+    private void sendDiagText(String t) {
+        try { sendJson(new JSONObject().put("type", "diag").put("text", Diag.tail(t, 120000))); Diag.markReported(); } catch (Exception ignored) {}
     }
 
     // ---------- cores do tema do app (para desenhar a tela parecida com o original) ----------
@@ -787,7 +859,7 @@ public class AgentService extends Service {
                 frameBmp.copyPixelsFromBuffer(buf);
                 frameDirty = true;
             }
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
         } finally { if (img != null) img.close(); }
     }
 
@@ -811,7 +883,7 @@ public class AgentService extends Service {
                 }
                 if (jpg != null) { sock.send(ByteString.of(jpg)); lastSent = now; }
             }
-        } catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
         capHandler.postDelayed(this, Math.max(30, 1000 / Math.max(1, fps)));
     }};
 

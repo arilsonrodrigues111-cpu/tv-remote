@@ -11,9 +11,11 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- liberada pelo Modo avançado (pm grant): permite o app religar o controle sozinho -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <application android:label="@string/app_name" android:icon="@drawable/icon"
+    <application android:name=".App" android:label="@string/app_name" android:icon="@drawable/icon"
         android:banner="@drawable/banner" android:usesCleartextTraffic="true"
         android:allowBackup="false">
         <activity android:name=".MainActivity" android:exported="true"

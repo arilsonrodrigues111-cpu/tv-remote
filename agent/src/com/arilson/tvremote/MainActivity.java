@@ -31,7 +31,10 @@ public class MainActivity extends Activity {
     private boolean fixChain = false;
     private int chainInstallTries = 0, chainFilesTries = 0;
 
-    private final Runnable tick = new Runnable() { public void run() { refresh(); h.postDelayed(this, 1000); } };
+    private final Runnable tick = new Runnable() { public void run() {
+        try { refresh(); } catch (Throwable e) { Diag.save("tela inicial", e); }
+        h.postDelayed(this, 1000);
+    } };
 
     /** Uma linha de liberação extra: nome, situação e botão. */
     private static class Extra { TextView status; Button btn; }
@@ -187,8 +190,20 @@ public class MainActivity extends Activity {
         setChip(chip1, "1  Controle", a, !a);
         setChip(chip2, "2  Ver a tela", cap, a && !cap);
 
-        int state = !a ? 0 : !cap ? 1 : 2;
-        if (state == 0) {
+        boolean stuck = !a && AccGuard.stuck(this);
+        if (stuck) AccGuard.repair(this, "tela inicial", false);
+        boolean selfFix = AccGuard.canWriteSecure(this) || AdbShell.isReady();
+        int state = !a ? (stuck ? 3 : 0) : !cap ? 1 : 2;
+        if (state == 3) {
+            // ligado nas Configurações, mas o Android derrubou o serviço (acontece em algumas TVs depois de um erro)
+            show(selfFix ? "Religando o controle…" : "O controle precisa ser religado",
+                    selfFix ? "O Android desligou o controle por dentro. O app está religando sozinho, aguarde alguns segundos."
+                            : "O Android desligou o controle por dentro. Toque no botão, entre em “TechSolutions”, DESLIGUE a chave e LIGUE de novo. Depois aperte Voltar.",
+                    "▶  RELIGAR O CONTROLE", Ui.ORANGE, new Runnable() { public void run() {
+                        if (!AccGuard.repair(MainActivity.this, "botão da TV", true)) open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                        else toast("Religando o controle…");
+                    }});
+        } else if (state == 0) {
             show("Ligue o controle remoto", "Toque no botão abaixo. Na lista que abrir, procure “TechSolutions”, entre e ligue a chave. Depois aperte Voltar no controle.",
                     "▶  LIGAR O CONTROLE", Ui.ORANGE, new Runnable() { public void run() { open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); } });
         } else if (state == 1) {

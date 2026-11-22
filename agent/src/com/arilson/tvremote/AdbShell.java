@@ -53,6 +53,13 @@ public class AdbShell {
     private volatile boolean stop = false;
     private long lastTry = 0;
 
+    /** Comandos com resposta (diagnóstico): cada um abre um canal próprio no adbd. */
+    public interface Result { void done(String out); }
+    private static class Exec { volatile int remote; final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(); Result cb; }
+    private final java.util.concurrent.ConcurrentHashMap<Integer, Exec> execs = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger nextId = new java.util.concurrent.atomic.AtomicInteger(100);
+    private final android.os.Handler timer = new android.os.Handler(android.os.Looper.getMainLooper());
+
     private AdbShell(Context c) { ctx = c.getApplicationContext(); }
 
     public static synchronized AdbShell get(Context c) { if (inst == null) inst = new AdbShell(c); return inst; }
@@ -69,6 +76,28 @@ public class AdbShell {
         if (!ready) { ensure(); return false; }
         queue.offer("input keyevent " + code);
         return true;
+    }
+
+    /** Roda um comando e devolve a saída (máx. ~25 s). Retorna false se o Modo avançado não estiver pronto. */
+    public boolean exec(String cmd, Result cb) {
+        if (!ready) { ensure(); return false; }
+        final int id = nextId.incrementAndGet();
+        Exec e = new Exec(); e.cb = cb;
+        execs.put(id, e);
+        try { send(OPEN, id, 0, ("shell:" + cmd + "\0").getBytes("UTF-8")); }
+        catch (Exception ex) { execs.remove(id); return false; }
+        timer.postDelayed(new Runnable() { public void run() { finishExec(id, "\n[tempo esgotado]\n", true); } }, 25000);
+        return true;
+    }
+
+    private void finishExec(int id, String tail, boolean closeIt) {
+        Exec e = execs.remove(id);
+        if (e == null) return;
+        if (closeIt && e.remote != 0) { try { send(CLSE, id, e.remote, null); } catch (Exception ignored) {} }
+        String out;
+        try { out = new String(e.out.toByteArray(), "UTF-8"); } catch (Exception x) { out = ""; }
+        if (tail != null) out += tail;
+        try { e.cb.done(out); } catch (Throwable ignored) {}
     }
 
     public synchronized void ensure() {
@@ -142,6 +171,18 @@ public class AdbShell {
         try {
             while (ready) {
                 Msg m = read(0);
+                if (m.a1 != 1) { // canal de um comando com resposta
+                    Exec e = execs.get(m.a1);
+                    if (m.cmd == OKAY) { if (e != null) e.remote = m.a0; }
+                    else if (m.cmd == WRTE) {
+                        send(OKAY, m.a1, m.a0, null);
+                        if (e != null && e.out.size() < 300000) e.out.write(m.data, 0, m.data.length);
+                    } else if (m.cmd == CLSE) {
+                        if (e != null && e.remote != 0) { try { send(CLSE, m.a1, m.a0, null); } catch (Exception ignored) {} }
+                        finishExec(m.a1, null, false);
+                    }
+                    continue;
+                }
                 if (m.cmd == OKAY) { synchronized (okLock) { okPending = false; okLock.notifyAll(); } }
                 else if (m.cmd == WRTE) send(OKAY, 1, m.a0, null);
                 else if (m.cmd == CLSE) { ready = false; queue.offer("exit"); break; }
@@ -149,6 +190,7 @@ public class AdbShell {
         } catch (Exception e) {
             ready = false; queue.offer("exit");
         }
+        for (Integer id : execs.keySet()) finishExec(id, "\n[modo avançado caiu]\n", false);
     }
 
     private void write(byte[] data) throws Exception {
