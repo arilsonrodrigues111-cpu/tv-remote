@@ -20,6 +20,16 @@ public class Prefs {
     static void save(Context c, String server, String token, String name) {
         sp(c).edit().putString("server", server).putString("token", token).putString("name", name).apply();
     }
+    /** Número do cliente dado pelo servidor (0 = ainda não recebeu). */
+    static int clientNum(Context c) { return sp(c).getInt("clientNum", 0); }
+    static String clientName(Context c) { return sp(c).getString("clientName", ""); }
+    static void saveClient(Context c, int num, String name) {
+        sp(c).edit().putInt("clientNum", num).putString("clientName", name == null ? "" : name).apply();
+    }
+    static String clientLabel(Context c) {
+        int n = clientNum(c);
+        return n > 0 ? String.format(java.util.Locale.ROOT, "%04d", n) : "----";
+    }
     /** http(s)://host -> ws(s)://host */
     static String httpBase(Context c) {
         String s = server(c).trim();

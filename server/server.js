@@ -33,13 +33,40 @@ const authOk = (req, url) => !!adminHash && !!tokOf(req, url) && safeEq(sha(tokO
 const agentOk = (req, url) => !AGENT_TOKEN || safeEq(tokOf(req, url), AGENT_TOKEN) || authOk(req, url);
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
+// ---------- cadastro de clientes (número fixo por TV + nome dado no painel) ----------
+const CLIENTS_FILE = path.join(DATA_DIR, 'clients.json');
+let clients = {}; // id -> { num, name, notes, model, android, agentVersion, firstSeen, lastSeen }
+try { clients = JSON.parse(fs.readFileSync(CLIENTS_FILE, 'utf8')); } catch {}
+let saveTimer = null;
+function saveClients() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => fs.writeFile(CLIENTS_FILE + '.tmp', JSON.stringify(clients, null, 1), (e) => { if (!e) fs.rename(CLIENTS_FILE + '.tmp', CLIENTS_FILE, () => {}); }), 300);
+}
+function clientFor(id) {
+  if (!clients[id]) {
+    const next = Object.values(clients).reduce((m, c) => Math.max(m, c.num || 0), 0) + 1;
+    clients[id] = { num: next, name: '', notes: '', firstSeen: Date.now() };
+    log('novo cliente nº', next, id);
+  }
+  return clients[id];
+}
+
 // ---------- estado ----------
 /** id -> { ws, info, watchers:Set<ws> } */
 const agents = new Map();
 const panels = new Set();
 
 function deviceList() {
-  return [...agents.entries()].map(([id, a]) => ({ id, ...a.info, watchers: a.watchers.size }));
+  const out = [];
+  for (const [id, c] of Object.entries(clients)) {
+    const a = agents.get(id);
+    out.push({ id, num: c.num, client: c.name || '', notes: c.notes || '', online: !!a, lastSeen: c.lastSeen,
+      model: c.model, android: c.android, agentVersion: c.agentVersion,
+      ...(a ? a.info : {}), watchers: a ? a.watchers.size : 0 });
+  }
+  // agentes antigos sem cadastro (não deve acontecer, mas por garantia)
+  for (const [id, a] of agents) if (!clients[id]) out.push({ id, ...a.info, online: true, watchers: a.watchers.size });
+  return out.sort((x, y) => (y.online - x.online) || ((x.num || 0) - (y.num || 0)));
 }
 function broadcastDevices() {
   const msg = JSON.stringify({ type: 'devices', list: deviceList() });
@@ -191,7 +218,9 @@ wss.on('connection', (ws, req) => {
     if (old && old.ws !== ws) try { old.ws.terminate(); } catch {}
     const a = { ws, info: { name: url.searchParams.get('name') || id, online: true, since: Date.now(), ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress }, watchers };
     agents.set(id, a);
-    log('agent on', id, a.info.name);
+    const c = clientFor(id); c.lastSeen = Date.now(); saveClients();
+    sendJson(ws, { type: 'assigned', num: c.num, client: c.name || '' });
+    log('agent on', id, a.info.name, 'cliente nº', c.num);
     broadcastDevices();
     updateStream(id);
 
@@ -202,14 +231,19 @@ wss.on('connection', (ws, req) => {
         return;
       }
       let m; try { m = JSON.parse(data); } catch { return; }
-      if (m.type === 'info') { Object.assign(a.info, m.info || {}); broadcastDevices(); return; }
+      if (m.type === 'info') {
+        Object.assign(a.info, m.info || {});
+        const c = clientFor(id); c.lastSeen = Date.now();
+        for (const k of ['model', 'android', 'agentVersion']) if (a.info[k]) c[k] = a.info[k];
+        saveClients(); broadcastDevices(); return;
+      }
       // status, apps, screen, etc. -> painéis que assistem (ou todos se for status)
       const out = JSON.stringify({ ...m, device: id });
       const targets = m.type === 'status' ? panels : a.watchers;
       for (const p of targets) if (p.readyState === 1) p.send(out);
     });
     ws.on('close', () => {
-      if (agents.get(id) === a) { agents.delete(id); log('agent off', id); broadcastDevices(); }
+      if (agents.get(id) === a) { agents.delete(id); if (clients[id]) { clients[id].lastSeen = Date.now(); saveClients(); } log('agent off', id); broadcastDevices(); }
     });
     return;
   }
@@ -226,6 +260,16 @@ wss.on('connection', (ws, req) => {
       const a = ws.watching && agents.get(ws.watching);
       if (a) { a.watchers.add(ws); updateStream(ws.watching); sendJson(a.ws, { type: 'hello' }); }
       broadcastDevices();
+    } else if (m.type === 'setClient') {
+      // nome / observação do cliente (dados do painel)
+      const c = clients[m.id]; if (!c) return;
+      if (typeof m.name === 'string') c.name = m.name.slice(0, 80).trim();
+      if (typeof m.notes === 'string') c.notes = m.notes.slice(0, 500);
+      saveClients(); broadcastDevices();
+      const a = agents.get(m.id); if (a) sendJson(a.ws, { type: 'assigned', num: c.num, client: c.name });
+    } else if (m.type === 'forgetClient') {
+      if (agents.get(m.id)) return sendJson(ws, { type: 'status', level: 'error', msg: 'Só dá para remover cliente offline' });
+      delete clients[m.id]; saveClients(); broadcastDevices();
     } else if (m.type === 'cmd') {
       const a = agents.get(m.id || ws.watching);
       if (!a) return sendJson(ws, { type: 'status', level: 'error', msg: 'Dispositivo offline' });

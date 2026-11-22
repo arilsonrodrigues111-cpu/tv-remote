@@ -5,185 +5,373 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TechSolutions – Suporte Remoto</title>
 <style>
-  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --fg:#e7e9ee; --mut:#8b93a5; --acc:#3b82f6; --ok:#22c55e; --bad:#ef4444; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:14px system-ui, sans-serif; background:var(--bg); color:var(--fg); height:100vh; display:flex; }
-  aside { width:250px; border-right:1px solid var(--line); padding:12px; overflow:auto; flex-shrink:0; }
-  main { flex:1; display:flex; flex-direction:column; min-width:0; }
-  h1 { font-size:16px; margin:0 0 12px; }
-  .dev { padding:10px; border:1px solid var(--line); border-radius:8px; margin-bottom:8px; cursor:pointer; background:var(--card); }
-  .dev.sel { border-color:var(--acc); }
-  .dev small { color:var(--mut); display:block; margin-top:2px; }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--ok); margin-right:6px; }
-  .bar { display:flex; gap:6px; flex-wrap:wrap; padding:8px 12px; border-bottom:1px solid var(--line); align-items:center; }
-  button { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
-  button:hover { border-color:var(--acc); }
-  button.pri { background:var(--acc); border-color:var(--acc); }
-  input, select { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
-  .stage { flex:1; display:flex; min-height:0; }
-  .screenwrap { flex:1; display:flex; align-items:center; justify-content:center; padding:12px; min-width:0; position:relative; }
-  #treeov { position:absolute; pointer-events:none; display:none; }
+  :root {
+    --bg:#0a1020; --panel:#0f172a; --card:#141d33; --card2:#1a2540; --line:#22304f; --fg:#e8ecf5; --mut:#8a96b0;
+    --acc:#f4583c; --blue:#3b82f6; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b; --gold:#ffcd3c; --r:12px;
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; font:14px/1.4 Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--fg); display:flex; flex-direction:column; overflow:hidden; }
+  button { background:var(--card2); color:var(--fg); border:1px solid var(--line); border-radius:9px; padding:7px 12px; cursor:pointer; font:inherit; transition:background .12s, border-color .12s, transform .06s; }
+  button:hover { border-color:#3a4b72; background:#1f2c4b; }
+  button:active { transform:scale(.96); }
+  button.pri, button.on { background:var(--blue); border-color:var(--blue); color:#fff; }
+  button.accent { background:var(--acc); border-color:var(--acc); color:#fff; }
+  button.okb { background:#15803d; border-color:#15803d; color:#fff; }
+  button.ghost { background:none; border-color:transparent; }
+  button:disabled { opacity:.5; cursor:default; }
+  button:focus { outline:none; }
+  button:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+  input, select, textarea { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:9px; padding:7px 10px; font:inherit; outline:none; }
+  input:focus, select:focus, textarea:focus { border-color:var(--blue); }
+  .hint { color:var(--mut); font-size:12.5px; line-height:1.5; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .grow { flex:1; min-width:0; }
+
+  /* ---------- topo ---------- */
+  .top { height:54px; display:flex; align-items:center; gap:14px; padding:0 16px; background:var(--panel); border-bottom:1px solid var(--line); flex-shrink:0; }
+  .logo { font-weight:800; letter-spacing:.06em; font-size:17px; }
+  .logo b { color:var(--acc); }
+  .logo small { color:var(--mut); font-weight:500; letter-spacing:0; margin-left:8px; font-size:12px; }
+  .srv { display:flex; align-items:center; gap:6px; color:var(--mut); font-size:12.5px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--mut); display:inline-block; flex-shrink:0; }
+  .dot.on { background:var(--ok); box-shadow:0 0 0 3px rgba(34,197,94,.18); }
+  .dot.off { background:#4b5568; }
+
+  .app { flex:1; display:flex; min-height:0; }
+
+  /* ---------- clientes ---------- */
+  .clients { width:280px; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; flex-shrink:0; }
+  .clients .head { padding:14px 14px 10px; }
+  .clients h2 { margin:0 0 8px; font-size:15px; display:flex; align-items:center; gap:8px; }
+  .clients h2 span { color:var(--mut); font-weight:500; font-size:12.5px; }
+  .clients input { width:100%; }
+  #devs { flex:1; overflow:auto; padding:4px 10px 14px; }
+  .dev { display:flex; gap:11px; padding:11px; border:1px solid var(--line); border-radius:var(--r); margin-bottom:8px; cursor:pointer; background:var(--card); transition:border-color .12s, background .12s; }
+  .dev:hover { border-color:#34456b; }
+  .dev.sel { border-color:var(--blue); background:#15213d; box-shadow:0 0 0 1px var(--blue) inset; }
+  .dev.offline { opacity:.55; }
+  .num { min-width:62px; height:48px; border-radius:10px; background:var(--acc); color:#fff; font-weight:800; font-size:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; letter-spacing:.04em; line-height:1; }
+  .num small { font-size:9px; font-weight:700; letter-spacing:.12em; opacity:.85; margin-bottom:3px; }
+  .dev.offline .num { background:#3a4560; }
+  .dev .info { min-width:0; flex:1; }
+  .dev .name { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
+  .dev .name .dot { width:8px; height:8px; }
+  .dev .sub { color:var(--mut); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .badges { display:flex; gap:4px; margin-top:5px; flex-wrap:wrap; }
+  .bdg { font-size:11px; padding:1px 7px; border-radius:20px; background:#1c2742; color:var(--mut); border:1px solid var(--line); }
+  .bdg.ok { color:#86efac; border-color:#1f5135; background:#11281c; }
+  .bdg.bad { color:#fca5a5; border-color:#5b2323; background:#2a1414; }
+
+  /* ---------- área de trabalho ---------- */
+  .work { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .devhead { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--panel); flex-wrap:wrap; }
+  .devhead .num { min-width:74px; height:52px; font-size:21px; }
+  .devhead .title { min-width:0; }
+  .devhead .title b { font-size:17px; cursor:pointer; }
+  .devhead .title b:hover { text-decoration:underline dotted; }
+  .devhead .title .sub { color:var(--mut); font-size:12.5px; }
+  .tools-btns { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-left:auto; }
+  .stagearea { flex:1; display:flex; min-height:0; gap:0; }
+  .screenwrap { flex:1; display:flex; align-items:center; justify-content:center; padding:14px; min-width:0; position:relative; background:radial-gradient(ellipse at center, #0f1830 0%, #0a1020 70%); }
+  #screen { max-width:100%; max-height:100%; background:#000; border-radius:10px; user-select:none; -webkit-user-drag:none; cursor:crosshair; outline:none; box-shadow:0 10px 40px rgba(0,0,0,.5), 0 0 0 1px #1d2742; }
+  #screen:focus { box-shadow:0 10px 40px rgba(0,0,0,.5), 0 0 0 2px var(--blue); }
+  #treeov { position:absolute; pointer-events:none; display:none; border-radius:10px; }
   #treeov.solo { pointer-events:auto; cursor:crosshair; }
-  #screen { max-width:100%; max-height:100%; background:#000; border-radius:6px; user-select:none; -webkit-user-drag:none; cursor:crosshair; outline:none; }
-  #placeholder { color:var(--mut); text-align:center; }
-  .side { width:300px; border-left:1px solid var(--line); display:flex; flex-direction:column; flex-shrink:0; }
-  .tabs { display:flex; border-bottom:1px solid var(--line); }
-  .tabs button { flex:1; border:0; border-radius:0; background:none; padding:10px; }
-  .tabs button.on { border-bottom:2px solid var(--acc); }
-  .pane { flex:1; overflow:auto; padding:10px; display:none; }
+  #placeholder { color:var(--mut); text-align:center; font-size:15px; max-width:420px; }
+  #placeholder .big { font-size:46px; margin-bottom:8px; }
+
+  /* ---------- controle remoto ---------- */
+  .remote-col { width:236px; flex-shrink:0; display:flex; align-items:flex-start; justify-content:center; padding:14px 12px; border-left:1px solid var(--line); background:var(--panel); overflow:auto; }
+  .remote { width:206px; padding:16px 14px 18px; border-radius:36px; background:linear-gradient(180deg,#232b3e 0%,#151b29 100%); border:1px solid #2e3850; box-shadow:0 14px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06); display:flex; flex-direction:column; gap:12px; align-items:center; }
+  .remote .brandr { font-size:10px; letter-spacing:.2em; color:#7d88a3; font-weight:700; }
+  .remote .brandr b { color:var(--acc); }
+  .rbtn { width:46px; height:46px; border-radius:50%; padding:0; font-size:17px; background:#2a3349; border:1px solid #39445f; display:inline-flex; align-items:center; justify-content:center; box-shadow:0 2px 0 #10141e; }
+  .rbtn:hover { background:#344061; }
+  .rbtn.sm { width:38px; height:38px; font-size:14px; }
+  .rbtn.wide { width:auto; white-space:nowrap; padding:0 12px; border-radius:20px; height:34px; font-size:12.5px; }
+  .rrow { display:flex; gap:10px; justify-content:center; }
+  .rrow.tight { gap:6px; }
+  .dpad { position:relative; width:172px; height:172px; border-radius:50%; background:radial-gradient(circle at 50% 40%, #323c55 0%, #252d42 70%); border:1px solid #3a4560; box-shadow:0 3px 0 #10141e, inset 0 2px 6px rgba(255,255,255,.05); }
+  .dpad button { position:absolute; background:none; border:0; color:#cfd6e6; font-size:20px; width:56px; height:56px; border-radius:50%; padding:0; }
+  .dpad button:hover { background:rgba(255,255,255,.07); }
+  .dpad .u { left:58px; top:2px; } .dpad .d { left:58px; bottom:2px; } .dpad .l { left:2px; top:58px; } .dpad .r { right:2px; top:58px; }
+  .dpad .ok { left:50px; top:50px; width:72px; height:72px; background:linear-gradient(180deg,#3b82f6,#2563eb); color:#fff; font-weight:800; font-size:16px; box-shadow:0 3px 0 #173e8c, 0 0 0 4px rgba(59,130,246,.15); }
+  .dpad .ok:hover { background:linear-gradient(180deg,#4b8ff7,#2f6bf0); }
+  .rocker { display:flex; flex-direction:column; align-items:center; background:#2a3349; border:1px solid #39445f; border-radius:22px; width:44px; box-shadow:0 2px 0 #10141e; }
+  .rocker button { background:none; border:0; width:44px; height:38px; padding:0; font-size:17px; border-radius:22px; }
+  .rocker button:hover { background:#344061; }
+  .rocker span { font-size:10px; color:#8b96b0; font-weight:700; letter-spacing:.08em; }
+  .rtext { width:100%; display:flex; flex-direction:column; gap:6px; }
+  .rtext input { width:100%; font-size:13px; padding:7px 9px; }
+  .pressed { animation:press .25s; }
+  @keyframes press { 0% { box-shadow:0 0 0 0 rgba(255,205,60,.8); } 100% { box-shadow:0 0 0 10px rgba(255,205,60,0); } }
+
+  /* ---------- ferramentas ---------- */
+  .tools { width:340px; flex-shrink:0; border-left:1px solid var(--line); display:flex; flex-direction:column; background:var(--panel); }
+  .tools.hidden { display:none; }
+  .tabs { display:flex; border-bottom:1px solid var(--line); overflow-x:auto; flex-shrink:0; }
+  .tabs button { flex:1; border:0; border-radius:0; background:none; padding:11px 6px; color:var(--mut); font-size:13px; white-space:nowrap; border-bottom:2px solid transparent; }
+  .tabs button.on { color:var(--fg); border-bottom-color:var(--acc); background:none; }
+  .pane { flex:1; overflow:auto; padding:14px; display:none; }
   .pane.on { display:block; }
-  .app { display:flex; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid var(--line); }
-  .app span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .app small { color:var(--mut); display:block; font-size:11px; }
-  .app button { padding:3px 7px; font-size:12px; }
-  #log div { font:12px ui-monospace, monospace; padding:3px 0; border-bottom:1px solid #1f232b; }
-  #log .error { color:var(--bad); } #log .ok { color:var(--ok); }
-  .pad { display:grid; grid-template-columns:repeat(3,48px); gap:6px; justify-content:center; margin:8px 0 14px; }
-  .pad button { height:44px; }
-  #drop { position:fixed; inset:0; background:rgba(59,130,246,.18); border:4px dashed var(--acc); display:none; align-items:center; justify-content:center; font-size:26px; z-index:10; pointer-events:none; }
-  #drop.on { display:flex; }
+  .sec { background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:12px; margin-bottom:12px; }
+  .sec h3 { margin:0 0 8px; font-size:13.5px; display:flex; align-items:center; gap:8px; }
+  .perm { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid #1c2640; }
+  .perm:last-child { border-bottom:0; }
+  .perm .ic { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; flex-shrink:0; background:#1c2742; color:var(--mut); }
+  .perm .ic.ok { background:#123522; color:#4ade80; }
+  .perm .ic.bad { background:#3a1717; color:#f87171; }
+  .perm b { display:block; font-size:13.5px; }
+  .perm small { color:var(--mut); font-size:12px; }
+  .perm button { padding:5px 10px; font-size:12.5px; }
+  ol.steps { margin:6px 0 0; padding-left:20px; color:var(--mut); font-size:12.5px; line-height:1.6; }
+  ol.steps b { color:var(--fg); }
+  .listrow { display:flex; align-items:center; gap:6px; padding:7px 0; border-bottom:1px solid #1c2640; }
+  .listrow span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .listrow small { color:var(--mut); display:block; font-size:11px; }
+  .listrow button { padding:4px 8px; font-size:12px; }
+  #log div { font:12px ui-monospace, monospace; padding:4px 0; border-bottom:1px solid #18203a; }
+  #log .error { color:#f87171; } #log .ok { color:#4ade80; }
+  .dropbox { display:block; border:2px dashed #33415f; border-radius:var(--r); padding:22px 12px; text-align:center; color:var(--mut); cursor:pointer; }
+  .dropbox:hover { border-color:var(--blue); color:var(--fg); }
   .prog { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:6px 0; }
-  .prog i { display:block; height:100%; background:var(--acc); width:0; }
+  .prog i { display:block; height:100%; background:var(--blue); width:0; transition:width .2s; }
+  #drop { position:fixed; inset:0; background:rgba(59,130,246,.15); border:4px dashed var(--blue); display:none; align-items:center; justify-content:center; font-size:26px; z-index:10; pointer-events:none; }
+  #drop.on { display:flex; }
+
+  /* ---------- login e janelas ---------- */
   #login { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:20; }
-  #login form { background:var(--card); padding:24px; border-radius:10px; border:1px solid var(--line); display:flex; flex-direction:column; gap:10px; width:300px; }
-  .hint { color:var(--mut); font-size:12px; line-height:1.5; }
+  #login form, .modal form { background:var(--card); padding:26px; border-radius:16px; border:1px solid var(--line); display:flex; flex-direction:column; gap:10px; width:330px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .modal { position:fixed; inset:0; background:rgba(5,8,18,.7); display:none; align-items:center; justify-content:center; z-index:15; }
+  .modal.on { display:flex; }
+  .modal label { font-size:12px; color:var(--mut); }
+  #toasts { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:6px; z-index:30; pointer-events:none; }
+  #toasts div { background:#1b2542; border:1px solid var(--line); padding:9px 14px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.4); animation:tin .2s; }
+  #toasts .error { border-color:#7f1d1d; } #toasts .ok { border-color:#166534; }
+  @keyframes tin { from { opacity:0; transform:translateY(8px); } }
+
+  .stagearea { position:relative; }
+  @media (max-width: 1350px) { .tools { position:absolute; right:236px; top:0; bottom:0; z-index:5; box-shadow:-10px 0 30px rgba(0,0,0,.45); } }
+  @media (max-width: 900px) { .clients { width:220px; } .remote-col { width:200px; } .remote { width:180px; } }
 </style>
 </head>
 <body>
 <div id="login"><form onsubmit="return doLogin(event)">
-  <h1>TechSolutions</h1>
+  <div class="logo" style="font-size:22px;text-align:center">TECH<b>SOLUTIONS</b></div>
+  <p class="hint" style="text-align:center;margin:0">Painel de suporte remoto</p>
   <p class="hint" id="setupmsg" style="display:none">Primeiro acesso: crie a senha do painel (mín. 8 caracteres).</p>
   <input id="tok" type="password" placeholder="Senha do painel" autofocus>
   <input id="tok2" type="password" placeholder="Repita a senha" style="display:none">
-  <button class="pri" id="loginbtn">Entrar</button>
+  <button class="accent" id="loginbtn">Entrar</button>
   <div class="hint" id="loginerr" style="color:var(--bad)"></div>
 </form></div>
 
-<aside>
-  <h1>Dispositivos</h1>
-  <div id="devs"><div class="hint">Nenhum dispositivo online.</div></div>
-  <p class="hint">Arraste um .apk para qualquer lugar da página para instalar no dispositivo selecionado.</p>
-</aside>
+<div class="modal" id="clientModal"><form onsubmit="return saveClient(event)">
+  <div class="row"><div class="num" id="cmNum"><small>CLIENTE</small>----</div><div><b>Dados do cliente</b><div class="hint" id="cmModel"></div></div></div>
+  <label>Nome do cliente</label>
+  <input id="cmName" placeholder="Ex.: João da Silva" maxlength="80">
+  <label>Observações (telefone, endereço, plano...)</label>
+  <textarea id="cmNotes" rows="4" maxlength="500" placeholder="Opcional"></textarea>
+  <div class="row"><button type="button" class="ghost" id="cmForget" style="color:#f87171">Remover</button><span class="grow"></span>
+    <button type="button" onclick="closeModal()">Cancelar</button><button class="accent">Salvar</button></div>
+</form></div>
 
-<main>
-  <div class="bar">
-    <strong id="devname">—</strong>
-    <span style="flex:1"></span>
-    <button onclick="key('back')" title="Voltar (Esc / botão direito)">⮌ Voltar</button>
-    <button onclick="key('home')" title="Home (H)">⌂ Home</button>
-    <button onclick="key('recents')">▤ Recentes</button>
-    <button onclick="key('notifications')">🔔</button>
-    <button onclick="key('voldown')">🔉</button>
-    <button onclick="key('volup')">🔊</button>
-    <button onclick="key('mute')">🔇</button>
-    <button onclick="send({type:'startCapture'})" title="Pede o consentimento de captura na TV (o agente tenta aceitar sozinho)">▶ Capturar tela</button>
-    <button id="treebtn" onclick="toggleTree()" title="Mostra os textos e botões da tela da TV (funciona até em apps que deixam a imagem preta)">📝 Textos da tela</button>
-    <select id="treemode" onchange="setTreeMode(this.value)" title="Como mostrar os textos da tela">
-      <option value="auto">Automático</option><option value="draw">Só desenho</option><option value="over">Sobre a imagem</option>
-    </select>
-    <select id="qual" onchange="setQuality()">
-      <option value="640,50,6">Baixa</option>
-      <option value="960,60,10" selected>Média</option>
-      <option value="1280,70,15">Alta</option>
-      <option value="1920,80,20">Máxima</option>
-    </select>
-  </div>
-  <div class="stage">
-    <div class="screenwrap">
-      <div id="placeholder">Selecione um dispositivo.</div>
-      <img id="screen" tabindex="0" style="display:none" alt="">
-      <canvas id="treeov"></canvas>
+<header class="top">
+  <div class="logo">TECH<b>SOLUTIONS</b><small>Suporte Remoto</small></div>
+  <span class="grow"></span>
+  <div class="srv"><span class="dot" id="srvdot"></span><span id="srvtxt">conectando…</span></div>
+  <button class="ghost" onclick="logout()" title="Sair do painel">Sair</button>
+</header>
+
+<div class="app">
+  <aside class="clients">
+    <div class="head">
+      <h2>Clientes <span id="devcount"></span></h2>
+      <input id="devq" placeholder="🔎  Buscar nº ou nome" oninput="renderDevices()">
     </div>
-    <div class="side">
-      <div class="tabs">
-        <button class="on" data-p="ctl">Controle</button>
-        <button data-p="apps">Apps</button>
-        <button data-p="files" onclick="listFiles()">Arquivos</button>
-        <button data-p="more">Mais</button>
-        <button data-p="logp">Log</button>
+    <div id="devs"><div class="hint" style="padding:10px">Nenhum cliente ainda. Instale o app na TV: <b>suporte.arilsondev.com/agent.apk</b></div></div>
+  </aside>
+
+  <section class="work">
+    <div class="devhead" id="devhead">
+      <div class="num" id="hNum"><small>CLIENTE</small>----</div>
+      <div class="title grow">
+        <b id="devname" onclick="openClient()" title="Clique para dar nome ao cliente">Selecione um cliente</b>
+        <div class="sub" id="devsub">Escolha uma TV na lista à esquerda.</div>
       </div>
-      <div class="pane on" id="ctl">
-        <div class="pad">
-          <span></span><button onclick="key('up')">▲</button><span></span>
-          <button onclick="key('left')">◀</button><button class="pri" onclick="key('ok')">OK</button><button onclick="key('right')">▶</button>
-          <span></span><button onclick="key('down')">▼</button><span></span>
-        </div>
-        <div style="display:flex;gap:6px">
-          <input id="txt" placeholder="Digitar texto no campo focado" style="flex:1" onkeydown="if(event.key==='Enter'){sendText();event.preventDefault()}">
-          <button onclick="sendText()">Enviar</button>
-        </div>
-        <h3 style="font-size:13px;margin:16px 0 6px">Instalar APK</h3>
-        <input type="file" id="file" accept=".apk" onchange="if(this.files[0])uploadAndInstall(this.files[0]);this.value=''">
-        <div style="display:flex;gap:6px;margin-top:8px">
-          <input id="apkurl" placeholder="ou URL direta do .apk" style="flex:1">
-          <button onclick="installUrl()">Instalar</button>
-        </div>
-        <div id="uploads"></div>
-        <p class="hint" style="margin-top:16px">
-          <b>Atalhos com a tela focada:</b> setas = D-pad, Enter = OK, Esc/Backspace = voltar, H = home.
-          Clique = toque, arrastar = deslizar, botão direito = voltar, roda do mouse = rolar, segurar 600 ms = toque longo.
-        </p>
+      <div class="tools-btns">
+        <button onclick="send({type:'startCapture'})" title="Pede para a TV mostrar a tela (o app aceita sozinho)">📺 Ver tela</button>
+        <button id="treebtn" onclick="toggleTree()" title="Mostra os textos e botões da tela da TV (funciona até em apps que deixam a imagem preta)">📝 Textos da tela</button>
+        <select id="treemode" onchange="setTreeMode(this.value)" title="Como mostrar os textos da tela">
+          <option value="auto">Automático</option><option value="draw">Só desenho</option><option value="over">Sobre a imagem</option>
+        </select>
+        <select id="qual" onchange="setQuality()" title="Qualidade da imagem">
+          <option value="640,50,6">Qualidade baixa</option>
+          <option value="960,60,10" selected>Qualidade média</option>
+          <option value="1280,70,15">Qualidade alta</option>
+          <option value="1920,80,20">Qualidade máxima</option>
+        </select>
+        <button id="toolsbtn" class="on" onclick="toggleTools()" title="Mostrar/esconder ferramentas">🧰 Ferramentas</button>
       </div>
-      <div class="pane" id="apps">
-        <div style="display:flex;gap:6px;margin-bottom:8px">
-          <input id="appq" placeholder="Filtrar" style="flex:1" oninput="renderApps()">
-          <button onclick="send({type:'apps'})">↻</button>
-        </div>
-        <div id="applist" class="hint">Clique em ↻ para listar.</div>
-      </div>
-      <div class="pane" id="files">
-        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
-          <button onclick="filesUp()" title="Pasta acima">⬆</button>
-          <button onclick="listFiles(fileRoot)" title="Início">🏠</button>
-          <button onclick="listFiles(filePath)" title="Atualizar">↻</button>
-          <input id="newdir" placeholder="nova pasta" style="flex:1">
-          <button onclick="mkdir()">＋</button>
-        </div>
-        <div id="filepath" class="hint" style="word-break:break-all;margin-bottom:6px"></div>
-        <input type="file" id="tvfile" onchange="if(this.files[0])sendToTv(this.files[0]);this.value=''">
-        <div class="hint" style="margin:4px 0 8px">↑ envia um arquivo para a pasta atual da TV</div>
-        <div id="filelist" class="hint">Abrindo…</div>
-        <div id="fileups"></div>
-      </div>
-      <div class="pane" id="more">
-        <h3 style="font-size:13px;margin:4px 0 6px">Permissões (ligar remotamente)</h3>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button onclick="send({type:'enableInstall'})">Liberar instalar apps</button>
-          <button onclick="send({type:'enableFiles'})">Liberar arquivos</button>
-        </div>
-        <h3 style="font-size:13px;margin:16px 0 6px">Modo avançado (controle total)</h3>
-        <div class="hint" id="adbstate" style="margin-bottom:6px">—</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="pri" onclick="send({type:'adbConnect'})">Ativar / testar</button>
-          <button onclick="send({type:'openSettings',action:'android.settings.DEVICE_INFO_SETTINGS'})">Abrir "Sobre"</button>
-          <button onclick="send({type:'openSettings',action:'android.settings.APPLICATION_DEVELOPMENT_SETTINGS'})">Abrir Opções do desenvolvedor</button>
-        </div>
-        <div class="hint" style="margin-top:6px">Faz o controle funcionar dentro de qualquer app (teclas reais) e libera a tela sem perguntar depois de reiniciar. Para ligar (você mesmo, pelo controle): em <b>Sobre</b> clique 7 vezes em <b>Build/Versão</b>; depois em <b>Opções do desenvolvedor</b> ligue <b>Depuração USB</b> e, se existir, <b>Depuração de rede / ADB pela rede</b>. Aí clique em <b>Ativar / testar</b>: a janela "Permitir depuração" é aceita sozinha.</div>
-        <h3 style="font-size:13px;margin:16px 0 6px">Atualizar o app da TV</h3>
-        <button class="pri" onclick="if(confirm('Baixar e instalar a versão mais nova do app nesta TV?'))send({type:'selfUpdate'})">⬇ Atualizar app nesta TV</button>
-        <h3 style="font-size:13px;margin:16px 0 6px">Mensagem na tela da TV</h3>
-        <div style="display:flex;gap:6px">
-          <input id="toast" placeholder="Texto para aparecer na TV" style="flex:1">
-          <button onclick="var t=$('toast').value;if(t){send({type:'toast',text:t});$('toast').value=''}">Mostrar</button>
-        </div>
-        <h3 style="font-size:13px;margin:16px 0 6px">Abrir link / vídeo na TV</h3>
-        <div style="display:flex;gap:6px">
-          <input id="openurl" placeholder="https://..." style="flex:1">
-          <button onclick="var u=$('openurl').value;if(u){send({type:'openUrl',url:u});$('openurl').value=''}">Abrir</button>
-        </div>
-        <h3 style="font-size:13px;margin:16px 0 6px">Informações</h3>
-        <div id="devinfo" class="hint">—</div>
-      </div>
-      <div class="pane" id="logp"><div id="log"></div></div>
     </div>
-  </div>
-</main>
-<div id="drop">Solte o APK para instalar</div>
+
+    <div class="stagearea">
+      <div class="screenwrap">
+        <div id="placeholder"><div class="big">📺</div>Selecione um cliente na lista para ver a TV.</div>
+        <img id="screen" tabindex="0" style="display:none" alt="">
+        <canvas id="treeov"></canvas>
+      </div>
+
+      <div class="remote-col">
+        <div class="remote" id="remote">
+          <div class="brandr">TECH<b>SOLUTIONS</b></div>
+          <div class="rrow">
+            <button class="rbtn" data-k="back" title="Voltar (Esc)">⮌</button>
+            <button class="rbtn" data-k="home" title="Início (H)">⌂</button>
+            <button class="rbtn" data-k="menu" title="Menu (modo avançado)">☰</button>
+          </div>
+          <div class="dpad">
+            <button class="u" data-k="up" title="Cima (↑)">▲</button>
+            <button class="l" data-k="left" title="Esquerda (←)">◀</button>
+            <button class="ok" data-k="ok" title="OK (Enter)">OK</button>
+            <button class="r" data-k="right" title="Direita (→)">▶</button>
+            <button class="d" data-k="down" title="Baixo (↓)">▼</button>
+          </div>
+          <div class="rrow" style="gap:18px;align-items:center">
+            <div class="rocker"><button data-k="volup" title="Volume +">＋</button><span>VOL</span><button data-k="voldown" title="Volume −">−</button></div>
+            <button class="rbtn sm" data-k="mute" title="Mudo">🔇</button>
+            <div class="rocker"><button data-k="chup" title="Canal + (modo avançado)">▲</button><span>CH</span><button data-k="chdown" title="Canal − (modo avançado)">▼</button></div>
+          </div>
+          <div class="rrow tight">
+            <button class="rbtn sm" data-k="rewind" title="Voltar o vídeo">⏪</button>
+            <button class="rbtn sm" data-k="playpause" title="Play / pausa (espaço)">⏯</button>
+            <button class="rbtn sm" data-k="ff" title="Avançar o vídeo">⏩</button>
+          </div>
+          <div class="rrow tight">
+            <button class="rbtn wide" data-k="recents" title="Apps recentes">▤ Recentes</button>
+            <button class="rbtn wide" onclick="send({type:'openSettings',action:'android.settings.SETTINGS'})" title="Abrir configurações da TV">⚙ Ajustes</button>
+          </div>
+          <div class="rtext">
+            <input id="txt" placeholder="⌨ Digitar na TV…" onkeydown="if(event.key==='Enter'){sendText();event.preventDefault()}">
+            <div class="rrow tight">
+              <button class="rbtn wide" onclick="sendText()" title="Escreve o texto no campo focado da TV">Enviar</button>
+              <button class="rbtn wide" data-k="del" title="Apagar uma letra">⌫</button>
+              <button class="rbtn wide" data-k="enter" title="Enter / pesquisar do teclado">⏎</button>
+            </div>
+          </div>
+          <div class="hint" style="text-align:center;font-size:11px">Teclado: setas, Enter = OK, Esc = voltar, H = início, espaço = play</div>
+        </div>
+      </div>
+
+      <aside class="tools" id="tools">
+        <div class="tabs">
+          <button class="on" data-p="permp">Liberar</button>
+          <button data-p="instp">Instalar</button>
+          <button data-p="apps" onclick="if(!apps.length)send({type:'apps'})">Apps</button>
+          <button data-p="files" onclick="if(!filePath)listFiles()">Arquivos</button>
+          <button data-p="more">Mais</button>
+          <button data-p="logp">Log</button>
+        </div>
+
+        <div class="pane on" id="permp">
+          <div class="sec">
+            <h3>Situação desta TV</h3>
+            <div id="perms" class="hint">Selecione um cliente.</div>
+            <button class="okb" style="width:100%;margin-top:10px" onclick="enableAll()">⚡ Liberar tudo o que der</button>
+          </div>
+          <div class="sec">
+            <h3>⚡ Modo avançado (controle total)</h3>
+            <div class="hint" id="adbstate" style="margin-bottom:8px">—</div>
+            <div class="row" style="flex-wrap:wrap">
+              <button class="pri" onclick="send({type:'adbConnect'})">Ativar / testar</button>
+              <button onclick="send({type:'openSettings',action:'android.settings.DEVICE_INFO_SETTINGS'})">Abrir “Sobre”</button>
+              <button onclick="send({type:'openSettings',action:'android.settings.APPLICATION_DEVELOPMENT_SETTINGS'})">Abrir Desenvolvedor</button>
+            </div>
+            <ol class="steps">
+              <li>Clique em <b>Abrir “Sobre”</b> e, com o controle ao lado, aperte <b>OK 7 vezes</b> em “Build”.</li>
+              <li>Clique em <b>Abrir Desenvolvedor</b> e ligue <b>Depuração USB</b> (e <b>Depuração de rede</b>, se tiver).</li>
+              <li>Clique em <b>Ativar / testar</b>. A janela “Permitir depuração?” é aceita sozinha.</li>
+            </ol>
+            <div class="hint" style="margin-top:6px">Com ele ligado: teclas reais em qualquer app, Menu/Canal funcionam e a tela é liberada sozinha depois de reiniciar.</div>
+          </div>
+          <div class="sec">
+            <h3>⬇ Atualizar o app da TV</h3>
+            <div class="hint" id="verinfo" style="margin-bottom:8px"></div>
+            <button class="accent" onclick="if(confirm('Baixar e instalar a versão mais nova do app nesta TV?'))send({type:'selfUpdate'})">Atualizar app nesta TV</button>
+          </div>
+        </div>
+
+        <div class="pane" id="instp">
+          <div class="sec">
+            <h3>📦 Instalar APK na TV</h3>
+            <label class="dropbox" for="file">Arraste o .apk aqui (ou em qualquer lugar da página)<br>ou <b>clique para escolher</b></label>
+            <input type="file" id="file" accept=".apk" style="display:none" onchange="if(this.files[0])uploadAndInstall(this.files[0]);this.value=''">
+            <div class="row" style="margin-top:10px">
+              <input id="apkurl" class="grow" placeholder="ou cole o link direto do .apk">
+              <button onclick="installUrl()">Instalar</button>
+            </div>
+            <div id="uploads"></div>
+            <div class="hint" style="margin-top:8px">O instalador da TV é confirmado sozinho. Se a TV pedir “instalar apps”, use a aba Liberar.</div>
+          </div>
+        </div>
+
+        <div class="pane" id="apps">
+          <div class="row" style="margin-bottom:8px">
+            <input id="appq" class="grow" placeholder="🔎 Filtrar apps" oninput="renderApps()">
+            <button onclick="send({type:'apps'})" title="Atualizar lista">↻</button>
+          </div>
+          <div id="applist" class="hint">Abrindo…</div>
+        </div>
+
+        <div class="pane" id="files">
+          <div class="row" style="margin-bottom:6px">
+            <button onclick="filesUp()" title="Pasta acima">⬆</button>
+            <button onclick="listFiles(fileRoot)" title="Início">🏠</button>
+            <button onclick="listFiles(filePath)" title="Atualizar">↻</button>
+            <input id="newdir" class="grow" placeholder="nova pasta">
+            <button onclick="mkdir()" title="Criar pasta">＋</button>
+          </div>
+          <div id="filepath" class="hint" style="word-break:break-all;margin-bottom:6px"></div>
+          <label class="dropbox" for="tvfile" style="padding:12px">⬆ Enviar arquivo para esta pasta da TV</label>
+          <input type="file" id="tvfile" style="display:none" onchange="if(this.files[0])sendToTv(this.files[0]);this.value=''">
+          <div id="fileups"></div>
+          <div id="filelist" class="hint" style="margin-top:8px">Abrindo…</div>
+        </div>
+
+        <div class="pane" id="more">
+          <div class="sec">
+            <h3>💬 Mensagem na tela da TV</h3>
+            <div class="row"><input id="toast" class="grow" placeholder="Texto para aparecer na TV"><button onclick="var t=$('toast').value;if(t){send({type:'toast',text:t});$('toast').value=''}">Mostrar</button></div>
+          </div>
+          <div class="sec">
+            <h3>🔗 Abrir link / vídeo na TV</h3>
+            <div class="row"><input id="openurl" class="grow" placeholder="https://..."><button onclick="var u=$('openurl').value;if(u){send({type:'openUrl',url:u});$('openurl').value=''}">Abrir</button></div>
+          </div>
+          <div class="sec">
+            <h3>ℹ Informações do aparelho</h3>
+            <div id="devinfo" class="hint">—</div>
+          </div>
+          <div class="sec">
+            <h3>👤 Cliente</h3>
+            <button onclick="openClient()">Editar nome e observações</button>
+          </div>
+        </div>
+
+        <div class="pane" id="logp"><div id="log"></div></div>
+      </aside>
+    </div>
+  </section>
+</div>
+<div id="drop">Solte o APK para instalar na TV</div>
+<div id="toasts"></div>
 
 <script>
 let TOKEN = localStorage.getItem('tvr_token') || '';
 let ws, current = null, devices = [], apps = [], lastUrl = null;
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad4 = (n) => n ? String(n).padStart(4, '0') : '----';
 
 let needsSetup = false;
 fetch('/api/setup').then((r) => r.json()).then((j) => {
@@ -203,15 +391,17 @@ async function doLogin(e) {
   TOKEN = pw; try { localStorage.setItem('tvr_token', TOKEN); } catch {}
   connect(); return false;
 }
+function logout() { try { localStorage.removeItem('tvr_token'); } catch {} location.reload(); }
+function setSrv(on, txt) { $('srvdot').className = 'dot ' + (on ? 'on' : 'off'); $('srvtxt').textContent = txt; }
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?role=panel&token=${encodeURIComponent(TOKEN)}`);
   ws.binaryType = 'blob';
-  ws.onopen = () => { $('login').style.display = 'none'; log('Conectado ao servidor', 'ok'); if (current) watch(current); };
+  ws.onopen = () => { $('login').style.display = 'none'; setSrv(true, 'Servidor conectado'); log('Conectado ao servidor', 'ok'); if (current) watch(current); };
   ws.onclose = (e) => {
     if (e.code === 4001) { $('login').style.display = 'flex'; $('loginerr').textContent = 'Senha incorreta'; try { localStorage.removeItem('tvr_token'); } catch {} return; }
-    log('Desconectado, reconectando...', 'error'); setTimeout(connect, 2000);
+    setSrv(false, 'Reconectando…'); setTimeout(connect, 2000);
   };
   ws.onmessage = (ev) => {
     if (typeof ev.data !== 'string') {
@@ -223,7 +413,7 @@ function connect() {
     }
     const m = JSON.parse(ev.data);
     if (m.type === 'devices') { devices = m.list; renderDevices(); }
-    else if (m.type === 'status') log(`[${devName(m.device)}] ${m.msg}`, m.level);
+    else if (m.type === 'status') { log(`[${devName(m.device)}] ${m.msg}`, m.level); if (m.device === current || !m.device) toast(m.msg, m.level); }
     else if (m.type === 'apps') { apps = m.list.sort((a, b) => a.label.localeCompare(b.label)); renderApps(); }
     else if (m.type === 'progress') setProg(m.key || m.name, m.pct, `TV baixando ${m.name}`);
     else if (m.type === 'tree') {
@@ -234,14 +424,16 @@ function connect() {
     else if (m.type === 'appIcon') { if (m.icon) { const im = new Image(); im.onload = () => { appIcons[m.pkg] = im; drawTree(); }; im.src = 'data:image/png;base64,' + m.icon; } }
     else if (m.type === 'files') { filePath = m.path; fileRoot = m.root || fileRoot; renderFiles(m.list); }
     else if (m.type === 'downloadReady') {
-      log(`Arquivo pronto: ${m.name}`, 'ok');
+      log(`Arquivo pronto: ${m.name}`, 'ok'); toast('Baixando ' + m.name, 'ok');
       const a = document.createElement('a'); a.href = m.url + '?token=' + encodeURIComponent(TOKEN); a.download = m.name;
       document.body.appendChild(a); a.click(); a.remove();
     }
     else if (m.type === 'screen') {
-      if (m.capturing && $('screen').style.display === 'none') { $('placeholder').textContent = 'Aguardando imagem da TV...'; }
-      if (!m.capturing) { $('screen').style.display = 'none'; $('placeholder').style.display = '';
-        $('placeholder').innerHTML = 'Captura de tela não ativa na TV.<br><br><button onclick="send({type:\'startCapture\'})">▶ Iniciar captura</button>'; }
+      if (m.capturing && $('screen').style.display === 'none') { $('placeholder').innerHTML = '<div class="big">⏳</div>Aguardando imagem da TV…'; }
+      if (!m.capturing) {
+        $('screen').style.display = 'none'; $('placeholder').style.display = '';
+        $('placeholder').innerHTML = '<div class="big">🔒</div>A TV ainda não liberou a imagem da tela.<br><br><button class="accent" onclick="send({type:\'startCapture\'})">📺 Pedir para ver a tela</button><br><br><span class="hint">Dá para usar o controle ao lado e o “📝 Textos da tela” mesmo sem a imagem.</span>';
+      }
     }
   };
 }
@@ -455,48 +647,109 @@ $('treeov').addEventListener('click', (e) => {
   send({ type: 'tap', x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height });
   setTimeout(() => send({ type: 'tree' }), 400);
 });
-const devName = (id) => (devices.find((d) => d.id === id) || {}).name || id;
-function send(cmd) { if (!current) return log('Selecione um dispositivo', 'error'); ws.send(JSON.stringify({ type: 'cmd', id: current, cmd })); }
+const devName = (id) => { const d = devices.find((x) => x.id === id); return d ? (d.num ? '#' + pad4(d.num) + ' ' : '') + (d.client || d.model || d.name || id) : id; };
+function send(cmd) {
+  if (!current) { toast('Selecione um cliente primeiro', 'error'); return; }
+  const d = devices.find((x) => x.id === current);
+  if (d && d.online === false) { toast('Esta TV está desligada ou sem internet', 'error'); return; }
+  ws.send(JSON.stringify({ type: 'cmd', id: current, cmd }));
+}
 function watch(id) {
   current = id; ws.send(JSON.stringify({ type: 'watch', id }));
-  $('devname').textContent = devName(id); apps = []; renderApps();
+  apps = []; renderApps();
   filePath = ''; fileRoot = ''; if ($('filelist')) $('filelist').textContent = 'Clique em Arquivos para abrir.';
   treeNodes = []; if (treeOn) drawTree();
-  $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').textContent = 'Aguardando imagem...';
+  $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">⏳</div>Conectando na TV…';
   renderDevices(); setQuality();
+  try { localStorage.setItem('tvr_last', id); } catch {}
+}
+function ago(t) {
+  if (!t) return ''; const s = (Date.now() - t) / 1000;
+  return s < 90 ? 'agora há pouco' : s < 3600 ? `há ${Math.round(s / 60)} min` : s < 86400 ? `há ${Math.round(s / 3600)} h` : `há ${Math.round(s / 86400)} dias`;
 }
 function renderDevices() {
-  const el = $('devs');
-  if (!devices.length) { el.innerHTML = '<div class="hint">Nenhum dispositivo online.</div>'; return; }
-  el.innerHTML = '';
-  for (const d of devices) {
-    const div = document.createElement('div');
-    div.className = 'dev' + (d.id === current ? ' sel' : '');
-    div.innerHTML = `<span class="dot"></span><b></b><small></small>`;
-    div.querySelector('b').textContent = d.name;
-    div.querySelector('small').textContent = [d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app ' + d.agentVersion].filter(Boolean).join(' · ')
-      + '\n' + (d.capturing ? '📺 tela autorizada' : '⚠ tela não autorizada') + (d.accessibility === false ? ' · ⚠ acessibilidade off' : '');
-    div.querySelector('small').style.whiteSpace = 'pre-line';
-    div.onclick = () => watch(d.id);
-    el.appendChild(div);
+  const el = $('devs'), q = ($('devq').value || '').toLowerCase().trim();
+  const on = devices.filter((d) => d.online !== false).length;
+  $('devcount').textContent = devices.length ? `${on} online · ${devices.length} no total` : '';
+  const list = devices.filter((d) => !q || pad4(d.num).includes(q) || String(d.num || '').includes(q) || (d.client || '').toLowerCase().includes(q) || (d.model || '').toLowerCase().includes(q));
+  if (!devices.length) { el.innerHTML = '<div class="hint" style="padding:10px">Nenhum cliente ainda. Instale o app na TV: <b>suporte.arilsondev.com/agent.apk</b></div>'; }
+  else {
+    el.innerHTML = '';
+    for (const d of list) {
+      const div = document.createElement('div');
+      const online = d.online !== false;
+      div.className = 'dev' + (d.id === current ? ' sel' : '') + (online ? '' : ' offline');
+      div.innerHTML = `<div class="num"><small>CLIENTE</small>${pad4(d.num)}</div>
+        <div class="info"><div class="name"><span class="dot ${online ? 'on' : 'off'}"></span><span class="grow" style="overflow:hidden;text-overflow:ellipsis">${esc(d.client || 'Sem nome')}</span></div>
+        <div class="sub">${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'v' + d.agentVersion].filter(Boolean).join(' · '))}</div>
+        <div class="badges">${online ? [
+          `<span class="bdg ${d.capturing ? 'ok' : 'bad'}" title="Ver a tela">📺 ${d.capturing ? 'tela' : 'sem tela'}</span>`,
+          `<span class="bdg ${d.accessibility !== false ? 'ok' : 'bad'}" title="Controle (Acessibilidade)">🎮 ${d.accessibility !== false ? 'controle' : 'sem controle'}</span>`,
+          d.adb === 'ativo' ? '<span class="bdg ok" title="Modo avançado">⚡ avançado</span>' : ''
+        ].join('') : `<span class="bdg">offline · ${esc(ago(d.lastSeen))}</span>`}</div></div>`;
+      div.onclick = () => watch(d.id);
+      el.appendChild(div);
+    }
+    if (!list.length) el.innerHTML = '<div class="hint" style="padding:10px">Nenhum cliente encontrado.</div>';
   }
-  if (current && !devices.find((d) => d.id === current)) { $('placeholder').textContent = 'Dispositivo offline.'; $('screen').style.display = 'none'; $('placeholder').style.display = ''; }
-  const d = devices.find((x) => x.id === current);
-  if (d && $('devinfo')) $('devinfo').innerHTML = [
-    '<b>' + (d.model || d.name) + '</b>', d.android && 'Android ' + d.android, d.screen && 'Tela ' + d.screen,
-    d.storage && 'Armazenamento: ' + d.storage, 'App versão ' + (d.agentVersion || '?'),
-    'Instalar apps: ' + (d.canInstall ? 'liberado' : 'bloqueado'), 'Modo avançado: ' + (d.adb || 'precisa app 1.4'), 'Ver a tela: ' + (d.capturing ? 'autorizado' : 'não')
-  ].filter(Boolean).join('<br>');
-  if (d && $('adbstate')) $('adbstate').innerHTML = 'Situação nesta TV: <b>' + (d.adb || 'precisa atualizar o app para 1.4') + '</b>';
+  renderHead();
 }
+function permRow(ok, title, desc, btn, onclick) {
+  return `<div class="perm"><div class="ic ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '!'}</div><div class="grow"><b>${title}</b><small>${desc}</small></div>${ok || !btn ? '' : `<button onclick="${onclick}">${btn}</button>`}</div>`;
+}
+function renderHead() {
+  const d = devices.find((x) => x.id === current);
+  if (!d) { $('hNum').innerHTML = '<small>CLIENTE</small>----'; $('devname').textContent = current ? 'Cliente removido' : 'Selecione um cliente'; $('devsub').textContent = 'Escolha uma TV na lista à esquerda.'; return; }
+  const online = d.online !== false;
+  $('hNum').innerHTML = `<small>CLIENTE</small>${pad4(d.num)}`;
+  $('hNum').style.background = online ? '' : '#3a4560';
+  $('devname').textContent = (d.client || 'Sem nome') + '  ✏';
+  $('devsub').innerHTML = `<span class="dot ${online ? 'on' : 'off'}" style="width:8px;height:8px"></span> ${online ? 'Online' : 'Offline ' + esc(ago(d.lastSeen))} · ${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app v' + d.agentVersion].filter(Boolean).join(' · '))}`;
+  if (!online) { $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">💤</div>Esta TV está desligada ou sem internet.<br><span class="hint">Ela aparece aqui sozinha quando ligar.</span>'; }
+  const old = !d.agentVersion || parseFloat(d.agentVersion) < 1.9;
+  $('perms').innerHTML = !online ? 'TV offline.' : [
+    permRow(d.accessibility !== false, 'Controle', 'Só a pessoa liga na TV (passo 1 do app).'),
+    permRow(!!d.capturing, 'Ver a tela', 'Passo 2 do app, ou peça daqui.', 'Pedir', "send({type:'startCapture'})"),
+    permRow(!!d.canInstall, 'Instalar apps', 'Para instalar APKs na TV.', 'Liberar', "send({type:'enableInstall'})"),
+    permRow(d.canFiles !== false && d.canFiles !== undefined, 'Arquivos', 'Para enviar e baixar arquivos.', 'Liberar', "send({type:'enableFiles'})"),
+    permRow(d.adb === 'ativo', 'Modo avançado', esc(d.adb === 'ativo' ? 'Ativo' : (d.adb || 'precisa app 1.4+')), 'Testar', "send({type:'adbConnect'})"),
+  ].join('');
+  $('adbstate').innerHTML = 'Situação: <b>' + esc(d.adb || 'precisa atualizar o app') + '</b>';
+  $('verinfo').innerHTML = `Versão na TV: <b>${esc(d.agentVersion || '?')}</b>` + (old ? ' · <span style="color:var(--warn)">tem versão nova</span>' : '');
+  $('devinfo').innerHTML = [
+    '<b>' + esc(d.model || d.name) + '</b>', d.android && 'Android ' + esc(d.android), d.screen && 'Tela ' + esc(d.screen),
+    d.storage && 'Armazenamento: ' + esc(d.storage), 'App versão ' + esc(d.agentVersion || '?'), d.ip && 'IP: ' + esc(d.ip),
+    d.notes && '<br><b>Observações:</b> ' + esc(d.notes).replace(/\n/g, '<br>')
+  ].filter(Boolean).join('<br>');
+}
+function enableAll() { send({ type: 'enableAll' }); setTimeout(() => send({ type: 'adbConnect' }), 400); toast('Liberando tudo na TV…'); }
+
+// ---------- cliente (nome e observações) ----------
+function openClient() {
+  const d = devices.find((x) => x.id === current); if (!d) return toast('Selecione um cliente', 'error');
+  $('cmNum').innerHTML = `<small>CLIENTE</small>${pad4(d.num)}`;
+  $('cmModel').textContent = [d.model, d.android && 'Android ' + d.android].filter(Boolean).join(' · ');
+  $('cmName').value = d.client || ''; $('cmNotes').value = d.notes || '';
+  $('cmForget').style.display = d.online === false ? '' : 'none';
+  $('cmForget').onclick = () => { if (confirm(`Remover o cliente nº ${pad4(d.num)} da lista? (Se a TV voltar, ganha um número novo.)`)) { ws.send(JSON.stringify({ type: 'forgetClient', id: d.id })); current = null; closeModal(); } };
+  $('clientModal').classList.add('on'); setTimeout(() => $('cmName').focus(), 50);
+}
+function closeModal() { $('clientModal').classList.remove('on'); }
+function saveClient(e) {
+  e.preventDefault();
+  ws.send(JSON.stringify({ type: 'setClient', id: current, name: $('cmName').value, notes: $('cmNotes').value }));
+  closeModal(); toast('Cliente salvo', 'ok'); return false;
+}
+$('clientModal').addEventListener('click', (e) => { if (e.target.id === 'clientModal') closeModal(); });
+
 function renderApps() {
   const q = $('appq').value.toLowerCase(), el = $('applist');
   const list = apps.filter((a) => !q || a.label.toLowerCase().includes(q) || a.pkg.includes(q));
   if (!apps.length) { el.innerHTML = '<span class="hint">Clique em ↻ para listar.</span>'; return; }
   el.innerHTML = '';
   for (const a of list) {
-    const row = document.createElement('div'); row.className = 'app';
-    row.innerHTML = '<span><b></b><small></small></span><button title="Abrir">▶</button><button title="Desinstalar">🗑</button>';
+    const row = document.createElement('div'); row.className = 'listrow';
+    row.innerHTML = '<span><b></b><small></small></span><button title="Abrir na TV">▶ Abrir</button><button title="Desinstalar">🗑</button>';
     row.querySelector('b').textContent = a.label; row.querySelector('small').textContent = a.pkg + (a.version ? ' · ' + a.version : '');
     const [bo, bu] = row.querySelectorAll('button');
     bo.onclick = () => send({ type: 'launch', pkg: a.pkg });
@@ -504,17 +757,25 @@ function renderApps() {
     el.appendChild(row);
   }
 }
-function key(k) { send({ type: 'key', key: k }); if (treeOn) setTimeout(() => send({ type: 'tree' }), 350); }
+function key(k) { send({ type: 'key', key: k }); if (treeOn) setTimeout(() => send({ type: 'tree' }), 350); flash(k); }
+function flash(k) { const b = document.querySelector(`#remote [data-k="${k}"]`); if (b) { b.classList.remove('pressed'); void b.offsetWidth; b.classList.add('pressed'); } }
 function sendText() { const t = $('txt').value; if (t) { send({ type: 'text', text: t }); $('txt').value = ''; } }
 function setQuality() { if (!current) return; const [max, q, fps] = $('qual').value.split(',').map(Number); send({ type: 'quality', max, q, fps }); }
 function log(msg, level = '') {
   const d = document.createElement('div'); d.className = level; d.textContent = new Date().toLocaleTimeString() + ' ' + msg;
   $('log').prepend(d);
 }
-document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
+function toast(msg, level = '') {
+  const d = document.createElement('div'); d.className = level; d.textContent = msg; $('toasts').appendChild(d);
+  setTimeout(() => d.remove(), level === 'error' ? 5000 : 3000);
+}
+function toggleTools() { const t = $('tools'); t.classList.toggle('hidden'); $('toolsbtn').classList.toggle('on', !t.classList.contains('hidden')); setTimeout(() => treeOn && drawTree(), 50); }
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
   document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
   document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === b.dataset.p));
-});
+}));
+// botões do controle remoto
+document.querySelectorAll('#remote [data-k]').forEach((b) => b.addEventListener('click', () => key(b.dataset.k)));
 
 // ---- mouse -> toque ----
 const img = $('screen');
@@ -535,8 +796,11 @@ img.addEventListener('wheel', (e) => {
   e.preventDefault(); const [x, y] = norm(e); const dy = e.deltaY > 0 ? -0.25 : 0.25;
   send({ type: 'swipe', x1: x, y1: y, x2: x, y2: Math.min(0.98, Math.max(0.02, y + dy)), ms: 250 });
 }, { passive: false });
-img.addEventListener('keydown', (e) => {
-  const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', Escape: 'back', Backspace: 'back', h: 'home', H: 'home' };
+// teclado do computador vira controle (quando não estiver digitando num campo)
+window.addEventListener('keydown', (e) => {
+  const t = e.target, tag = (t && t.tagName) || '';
+  if (/INPUT|TEXTAREA|SELECT/.test(tag) || $('clientModal').classList.contains('on') || !current || e.ctrlKey || e.metaKey || e.altKey) return;
+  const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', Escape: 'back', Backspace: 'back', h: 'home', H: 'home', ' ': 'playpause', '+': 'volup', '-': 'voldown', m: 'menu', M: 'menu' };
   if (map[e.key]) { e.preventDefault(); key(map[e.key]); }
 });
 
@@ -547,7 +811,7 @@ window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth =
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => {
   e.preventDefault(); dragDepth = 0; $('drop').classList.remove('on');
-  for (const f of e.dataTransfer.files) if (f.name.toLowerCase().endsWith('.apk')) uploadAndInstall(f); else log(`${f.name} não é .apk`, 'error');
+  for (const f of e.dataTransfer.files) if (f.name.toLowerCase().endsWith('.apk')) uploadAndInstall(f); else toast(`${f.name} não é .apk (use a aba Arquivos para outros arquivos)`, 'error');
 });
 function setProg(key, pct, label) {
   let el = document.querySelector(`[data-up="${CSS.escape(key)}"]`);
@@ -555,20 +819,23 @@ function setProg(key, pct, label) {
   el.querySelector('.hint').textContent = `${label} – ${pct}%`; el.querySelector('i').style.width = pct + '%';
   if (pct >= 100) setTimeout(() => el.remove(), 4000);
 }
+function showTab(id) { const b = document.querySelector(`.tabs button[data-p="${id}"]`); if (b) b.click(); if ($('tools').classList.contains('hidden')) toggleTools(); }
 function uploadAndInstall(file) {
-  if (!current) return log('Selecione um dispositivo antes de enviar', 'error');
+  if (!current) return toast('Selecione um cliente antes de enviar', 'error');
+  showTab('instp');
   const target = current, k = 'up-' + file.name + Date.now();
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/upload?name=' + encodeURIComponent(file.name));
   xhr.setRequestHeader('X-Token', TOKEN);
   xhr.upload.onprogress = (e) => e.lengthComputable && setProg(k, Math.round(e.loaded / e.total * 100), `Enviando ${file.name}`);
   xhr.onload = () => {
-    if (xhr.status !== 200) return log('Falha no upload: ' + xhr.status, 'error');
+    if (xhr.status !== 200) return toast('Falha no upload: ' + xhr.status, 'error');
     const r = JSON.parse(xhr.responseText);
     log(`Upload ok (${(r.size / 1048576).toFixed(1)} MB). Mandando a TV instalar ${file.name}`, 'ok');
+    toast('Enviado. A TV está instalando ' + file.name, 'ok');
     ws.send(JSON.stringify({ type: 'cmd', id: target, cmd: { type: 'install', path: r.path, name: file.name } }));
   };
-  xhr.onerror = () => log('Erro de rede no upload', 'error');
+  xhr.onerror = () => toast('Erro de rede no upload', 'error');
   xhr.send(file);
 }
 function installUrl() {
@@ -578,7 +845,7 @@ function installUrl() {
 
 // ---------- explorador de arquivos ----------
 let filePath = '', fileRoot = '';
-function listFiles(path) { if (!current) return log('Selecione um dispositivo', 'error'); send({ type: 'files', path: path || '' }); $('filelist').textContent = 'Abrindo…'; }
+function listFiles(path) { if (!current) return toast('Selecione um cliente', 'error'); send({ type: 'files', path: path || '' }); $('filelist').textContent = 'Abrindo…'; }
 function filesUp() { if (!filePath || filePath === fileRoot) return; const up = filePath.replace(/\/[^/]*$/, '') || fileRoot; listFiles(up); }
 function mkdir() { const n = $('newdir').value.trim(); if (!n) return; send({ type: 'mkdir', path: (filePath || fileRoot) + '/' + n }); $('newdir').value = ''; }
 function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b > 1024 ? (b / 1024).toFixed(0) + ' KB' : b + ' B'; }
@@ -588,39 +855,39 @@ function renderFiles(list) {
   if (!list.length) { el.innerHTML = '<span class="hint">Pasta vazia.</span>'; return; }
   el.innerHTML = '';
   for (const f of list) {
-    const row = document.createElement('div'); row.className = 'app';
+    const row = document.createElement('div'); row.className = 'listrow';
     const icon = f.dir ? '📁' : f.apk ? '📦' : '📄';
     row.innerHTML = '<span><b></b><small></small></span>';
     row.querySelector('b').textContent = icon + ' ' + f.name;
     row.querySelector('small').textContent = f.dir ? 'pasta' : fmtSize(f.size);
     if (f.dir) { row.style.cursor = 'pointer'; row.onclick = () => listFiles(f.path); }
     else {
-      const dl = document.createElement('button'); dl.textContent = '⬇'; dl.title = 'Baixar para mim';
+      const dl = document.createElement('button'); dl.textContent = '⬇'; dl.title = 'Baixar para o computador';
       dl.onclick = () => send({ type: 'sendFile', path: f.path, name: f.name });
       row.appendChild(dl);
       if (f.apk) { const ins = document.createElement('button'); ins.textContent = '▶'; ins.title = 'Instalar na TV';
         ins.onclick = () => send({ type: 'installLocal', path: f.path, name: f.name }); row.appendChild(ins); }
     }
     const del = document.createElement('button'); del.textContent = '🗑'; del.title = 'Apagar';
-    del.onclick = () => { if (confirm('Apagar ' + f.name + '?')) send({ type: 'deleteFile', path: f.path }); };
+    del.onclick = (ev) => { ev.stopPropagation(); if (confirm('Apagar ' + f.name + '?')) send({ type: 'deleteFile', path: f.path }); };
     row.appendChild(del);
     el.appendChild(row);
   }
 }
 function sendToTv(file) {
-  if (!current) return log('Selecione um dispositivo', 'error');
+  if (!current) return toast('Selecione um cliente', 'error');
   const target = current, k = 'tv-' + file.name + Date.now();
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/upload?name=' + encodeURIComponent(file.name));
   xhr.setRequestHeader('X-Token', TOKEN);
   xhr.upload.onprogress = (e) => e.lengthComputable && setFileProg(k, Math.round(e.loaded / e.total * 100), `Enviando ${file.name}`);
   xhr.onload = () => {
-    if (xhr.status !== 200) return log('Falha no upload: ' + xhr.status, 'error');
+    if (xhr.status !== 200) return toast('Falha no upload: ' + xhr.status, 'error');
     const r = JSON.parse(xhr.responseText);
     setFileProg(k, 100, `Enviado ${file.name}`);
     ws.send(JSON.stringify({ type: 'cmd', id: target, cmd: { type: 'putFile', path: r.path, name: file.name, dir: filePath } }));
   };
-  xhr.onerror = () => log('Erro de rede no envio', 'error');
+  xhr.onerror = () => toast('Erro de rede no envio', 'error');
   xhr.send(file);
 }
 function setFileProg(key, pct, label) {
@@ -629,6 +896,10 @@ function setFileProg(key, pct, label) {
   el.querySelector('.hint').textContent = `${label} – ${pct}%`; el.querySelector('i').style.width = pct + '%';
   if (pct >= 100) setTimeout(() => el.remove(), 4000);
 }
+// telas menores: ferramentas começam fechadas (abrem por cima, sem esconder o controle)
+if (window.innerWidth < 1350) { $('tools').classList.add('hidden'); $('toolsbtn').classList.remove('on'); }
+// abre direto no último cliente usado
+try { const last = localStorage.getItem('tvr_last'); if (last) current = last; } catch {}
 if (TOKEN) connect();
 </script>
 </body>

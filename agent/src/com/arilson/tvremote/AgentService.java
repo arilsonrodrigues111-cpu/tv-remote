@@ -156,6 +156,7 @@ public class AgentService extends Service {
         super.onDestroy();
     }
 
+    private void updateNotif() { try { startForegroundNotif(); } catch (Exception ignored) {} }
     private void startForegroundNotif() {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         Notification.Builder b;
@@ -165,7 +166,7 @@ public class AgentService extends Service {
         } else b = new Notification.Builder(this);
         PendingIntent pi = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class),
                 Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
-        Notification n = b.setContentTitle(getString(R.string.app_name)).setContentText("Suporte remoto ativo")
+        Notification n = b.setContentTitle(getString(R.string.app_name)).setContentText("Suporte remoto ativo · Cliente nº " + Prefs.clientLabel(this))
                 .setSmallIcon(android.R.drawable.stat_sys_upload_done).setContentIntent(pi).setOngoing(true).build();
         startForeground(1, n);
     }
@@ -231,6 +232,8 @@ public class AgentService extends Service {
                     .put("accessibility", RemoteAccessibility.enabled())
                     .put("capturing", projection != null)
                     .put("canInstall", Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls())
+                    .put("canFiles", canFiles(this))
+                    .put("clientNum", Prefs.clientNum(this))
                     .put("screen", screenW + "x" + screenH)
                     .put("storage", storageInfo())
                     .put("adb", AdbShell.isReady() ? "ativo" : AdbShell.state)
@@ -248,6 +251,10 @@ public class AgentService extends Service {
         String type = m.optString("type");
         RemoteAccessibility acc = RemoteAccessibility.instance;
         switch (type) {
+            case "assigned":
+                Prefs.saveClient(this, m.optInt("num", 0), m.optString("client", ""));
+                updateNotif();
+                return;
             case "hello": AdbShell.get(this).ensure(); sendInfo(); sendScreenState(); forceKeyframe(); if (streamWanted && projection != null) ensureDisplay(); return;
             case "stream":
                 streamWanted = m.optBoolean("on");
@@ -276,6 +283,7 @@ public class AgentService extends Service {
             case "openUrl": openUrl(m.getString("url")); return;
             case "enableInstall": enableInstall(); return;
             case "enableFiles": enableFiles(); return;
+            case "enableAll": enableAll(); return;
             case "openSettings": RemoteAccessibility.startActivityAny(this, new Intent(m.getString("action"))); return;
             case "adbConnect": AdbShell.get(this).ensure(); status("info", "Modo avançado: " + AdbShell.state); return;
             case "shell":
@@ -430,6 +438,21 @@ public class AgentService extends Service {
             case "recents": code = 187; break;
             case "menu": code = 82; break;
             case "playpause": code = 85; break;
+            case "stop": code = 86; break;
+            case "next": code = 87; break;
+            case "prev": code = 88; break;
+            case "rewind": code = 89; break;
+            case "ff": code = 90; break;
+            case "volup": code = 24; break;
+            case "voldown": code = 25; break;
+            case "mute": code = 164; break;
+            case "del": code = 67; break;
+            case "enter": code = 66; break;
+            case "settings": code = 176; break;
+            case "notifications": code = 83; break;
+            case "info": code = 165; break;
+            case "chup": code = 166; break;
+            case "chdown": code = 167; break;
             default: return false;
         }
         return AdbShell.get(this).key(code);
@@ -460,7 +483,29 @@ public class AgentService extends Service {
             case "volup": am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI); break;
             case "voldown": am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI); break;
             case "mute": am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI); break;
+            case "playpause": media(am, android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE); break;
+            case "stop": media(am, android.view.KeyEvent.KEYCODE_MEDIA_STOP); break;
+            case "next": media(am, android.view.KeyEvent.KEYCODE_MEDIA_NEXT); break;
+            case "prev": media(am, android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS); break;
+            case "rewind": media(am, android.view.KeyEvent.KEYCODE_MEDIA_REWIND); break;
+            case "ff": media(am, android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD); break;
+            case "del": if (!acc.deleteChar()) status("error", "Nenhum campo de texto focado"); break;
+            case "enter": if (!acc.imeEnter()) acc.clickFocused(screenW, screenH); break;
+            case "menu": case "settings": case "info": case "chup": case "chdown":
+                status("error", "Esta tecla precisa do Modo avançado (aba Liberar)"); break;
         }
+    }
+    /** Teclas de mídia sem ADB: vão para o player que estiver tocando. */
+    private static void media(AudioManager am, int code) {
+        long t = android.os.SystemClock.uptimeMillis();
+        am.dispatchMediaKeyEvent(new android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_DOWN, code, 0));
+        am.dispatchMediaKeyEvent(new android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_UP, code, 0));
+    }
+    static boolean canFiles(Context c) {
+        return Build.VERSION.SDK_INT < 23 || c.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+    }
+    static boolean canInstall(Context c) {
+        return Build.VERSION.SDK_INT < 26 || c.getPackageManager().canRequestPackageInstalls();
     }
 
     void sendApps() {
@@ -584,9 +629,10 @@ public class AgentService extends Service {
     static void triggerSelfUpdate() { if (instance != null) instance.selfUpdate(); }
 
     /** Liga remotamente "instalar apps desconhecidos": abre a tela e aceita sozinho. */
-    private void enableInstall() {
-        if (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls()) { status("ok", "Instalar apps já está liberado"); sendInfo(); return; }
-        RemoteAccessibility.autoAccept(15000);
+    void enableInstall() {
+        if (canInstall(this)) { status("ok", "Instalar apps já está liberado"); sendInfo(); return; }
+        if (AdbShell.isReady()) { adbChanged(); main.postDelayed(new Runnable() { public void run() { sendInfo(); } }, 2500); return; }
+        RemoteAccessibility.autoAcceptPerm(20000);
         Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()));
         RemoteAccessibility.startActivityAny(this, i);
         status("info", "Liberando 'instalar apps' na TV...");
@@ -594,12 +640,21 @@ public class AgentService extends Service {
     }
 
     /** Liga remotamente o acesso a arquivos. */
-    private void enableFiles() {
-        if (Build.VERSION.SDK_INT < 23) { status("ok", "Arquivos já liberado"); return; }
-        RemoteAccessibility.autoAccept(15000);
-        Intent i = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + getPackageName()));
-        RemoteAccessibility.startActivityAny(this, i);
-        status("info", "Abri as permissões do app na TV: liberando arquivos...");
+    /** Libera tudo o que dá: com ADB faz sozinho; sem ADB abre uma tela de cada vez (a acessibilidade aceita). */
+    void enableAll() {
+        AdbShell.get(this).ensure();
+        if (!canInstall(this)) { enableInstall(); main.postDelayed(new Runnable() { public void run() { if (!canFiles(AgentService.this)) enableFiles(); } }, 9000); }
+        else if (!canFiles(this)) enableFiles();
+        else status("ok", "Instalar apps e arquivos já estão liberados");
+    }
+
+    void enableFiles() {
+        if (canFiles(this)) { status("ok", "Arquivos já está liberado"); sendInfo(); return; }
+        if (AdbShell.isReady()) { adbChanged(); main.postDelayed(new Runnable() { public void run() { sendInfo(); } }, 2500); return; }
+        RemoteAccessibility.autoAcceptPerm(20000);
+        RemoteAccessibility.startActivityAny(this, new Intent(this, PermActivity.class));
+        status("info", "Pedindo a permissão de arquivos na TV (o app aceita sozinho)...");
+        main.postDelayed(new Runnable() { public void run() { sendInfo(); } }, 5000);
     }
 
     /** Baixa e instala o próprio APK mais novo do servidor (botão "Atualizar app"). */

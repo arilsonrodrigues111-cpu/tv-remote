@@ -25,6 +25,7 @@ public class RemoteAccessibility extends AccessibilityService {
     static volatile long autoAcceptNotBefore = 0;
     static volatile boolean projectionMode = false;
     static volatile boolean debugMode = false;
+    static volatile boolean permMode = false;
     private final Handler h = new Handler(Looper.getMainLooper());
 
     // Botões do instalador de pacotes (instalar/desinstalar/concluir)
@@ -46,7 +47,7 @@ public class RemoteAccessibility extends AccessibilityService {
 
     /** Instalação/desinstalação: aceita os botões do instalador. */
     static void autoAccept(long ms) {
-        projectionMode = false; debugMode = false;
+        projectionMode = false; debugMode = false; permMode = false;
         autoAcceptNotBefore = System.currentTimeMillis() + 600;
         autoAcceptUntil = System.currentTimeMillis() + ms;
         final RemoteAccessibility s = instance;
@@ -55,7 +56,7 @@ public class RemoteAccessibility extends AccessibilityService {
 
     /** Captura de tela: espera o diálogo estabilizar e clica só no botão positivo. */
     static void autoAcceptProjection(long ms, long delayMs) {
-        projectionMode = true; debugMode = false;
+        projectionMode = true; debugMode = false; permMode = false;
         autoAcceptNotBefore = System.currentTimeMillis() + delayMs;
         autoAcceptUntil = System.currentTimeMillis() + ms;
         final RemoteAccessibility s = instance;
@@ -64,14 +65,25 @@ public class RemoteAccessibility extends AccessibilityService {
 
     /** Diálogo de autorização do ADB: marca "sempre permitir" e confirma. */
     static void autoAcceptDebug(long ms) {
-        projectionMode = false; debugMode = true;
+        projectionMode = false; debugMode = true; permMode = false;
         autoAcceptNotBefore = System.currentTimeMillis() + 800;
         autoAcceptUntil = System.currentTimeMillis() + ms;
         final RemoteAccessibility s = instance;
         if (s != null) s.scheduleScan(900);
     }
 
-    static void cancelAutoAccept() { autoAcceptUntil = 0; projectionMode = false; debugMode = false; }
+    /** Telas de permissão (instalar de fontes desconhecidas, arquivos): liga a chave / toca em Permitir. */
+    static void autoAcceptPerm(long ms) {
+        projectionMode = false; debugMode = false; permMode = true;
+        autoAcceptNotBefore = System.currentTimeMillis() + 900;
+        autoAcceptUntil = System.currentTimeMillis() + ms;
+        final RemoteAccessibility s = instance;
+        if (s != null) s.scheduleScan(1000);
+    }
+    private static final String[] PERM_WORDS = { "permitir", "allow", "permitir sempre", "sempre permitir", "allow all the time", "ok" };
+    private static final String[] PERM_TOGGLE = { "permitir desta fonte", "allow from this source", "permitir dessa fonte", "fontes desconhecidas", "unknown sources", "permitir", "allow" };
+
+    static void cancelAutoAccept() { autoAcceptUntil = 0; projectionMode = false; debugMode = false; permMode = false; }
 
     /** Abre uma Activity usando o contexto da acessibilidade (isento do bloqueio de background do Android 10+). */
     static void startActivityAny(Context fallback, Intent i) {
@@ -114,7 +126,8 @@ public class RemoteAccessibility extends AccessibilityService {
             if (now >= autoAcceptUntil) return;
             if (now < autoAcceptNotBefore) { scheduleScan(autoAcceptNotBefore - now + 50); return; }
             boolean clicked = scanAndAccept();
-            if (clicked && (projectionMode || debugMode)) { cancelAutoAccept(); return; } // um clique só no diálogo de captura
+            if (clicked && (projectionMode || debugMode)) { cancelAutoAccept(); return; }
+            if (clicked && permMode) { cancelAutoAccept(); return; } // um clique só no diálogo de captura
             scheduleScan(clicked ? 1500 : 700);
         }}, delay);
     }
@@ -133,6 +146,11 @@ public class RemoteAccessibility extends AccessibilityService {
             if (p.equals(getPackageName())) continue;
             boolean installer = p.contains("packageinstaller") || p.contains("permissioncontroller");
             boolean system = p.contains("systemui") || p.equals("android") || p.contains("mediaprojection");
+            if (permMode) {
+                if (!(installer || p.contains("settings"))) continue;
+                if (acceptPerm(r)) return true;
+                continue;
+            }
             if (debugMode) {
                 if (!(system || p.contains("settings"))) continue;
                 if (acceptIn(r, DEBUG_WORDS)) return true;
@@ -185,6 +203,72 @@ public class RemoteAccessibility extends AccessibilityService {
             }
         }
         return false;
+    }
+
+    /** Liga a chave "Permitir desta fonte" (e volta), ou toca em "Permitir" no diálogo de permissão. */
+    private boolean acceptPerm(AccessibilityNodeInfo root) {
+        List<AccessibilityNodeInfo> all = new ArrayList<>();
+        collect(root, all, 0);
+        for (AccessibilityNodeInfo n : all) {
+            if (!n.isCheckable() || !n.isEnabled() || !n.isVisibleToUser()) continue;
+            String label = labelOf(n);
+            boolean match = false;
+            for (String w : PERM_TOGGLE) if (label.contains(w)) { match = true; break; }
+            if (!match) continue;
+            if (n.isChecked()) { // já ligado: só volta
+                h.postDelayed(new Runnable() { public void run() { performGlobalAction(GLOBAL_ACTION_BACK); } }, 600);
+                return true;
+            }
+            AccessibilityNodeInfo t = n;
+            for (int up = 0; up < 3 && t != null && !t.isClickable(); up++) t = t.getParent();
+            if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                h.postDelayed(new Runnable() { public void run() { performGlobalAction(GLOBAL_ACTION_BACK); } }, 900);
+                return true;
+            }
+        }
+        for (AccessibilityNodeInfo n : all) {
+            if (!n.isEnabled() || !n.isVisibleToUser() || n.isCheckable() || !matches(n, PERM_WORDS)) continue;
+            AccessibilityNodeInfo t = n;
+            for (int up = 0; up < 2 && t != null && !t.isClickable(); up++) t = t.getParent();
+            if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+        }
+        return false;
+    }
+    /** Texto do item ou, se ele não tiver, do "pai" (linhas de configurações têm o título num irmão). */
+    private static String labelOf(AccessibilityNodeInfo n) {
+        StringBuilder b = new StringBuilder();
+        if (n.getText() != null) b.append(n.getText());
+        AccessibilityNodeInfo p = n.getParent();
+        for (int up = 0; up < 2 && p != null; up++) {
+            for (int i = 0; i < p.getChildCount(); i++) {
+                AccessibilityNodeInfo c = p.getChild(i);
+                if (c != null && c.getText() != null) b.append(' ').append(c.getText());
+            }
+            if (p.getText() != null) b.append(' ').append(p.getText());
+            p = p.getParent();
+        }
+        return b.toString().toLowerCase(Locale.ROOT);
+    }
+
+    /** Apaga a última letra do campo de texto focado. */
+    boolean deleteChar() {
+        AccessibilityNodeInfo f = findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        if (f == null || !f.isEditable()) f = firstEditable(getRootInActiveWindow(), 0);
+        if (f == null) return false;
+        CharSequence cur = f.getText();
+        String hint = android.os.Build.VERSION.SDK_INT >= 26 && f.getHintText() != null ? f.getHintText().toString() : null;
+        String base = (cur == null || cur.toString().equals(hint)) ? "" : cur.toString();
+        if (base.isEmpty()) return true;
+        Bundle b = new Bundle();
+        b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, base.substring(0, base.length() - 1));
+        return f.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b);
+    }
+    /** "Enter"/pesquisar do teclado no campo focado (Android 11+). */
+    boolean imeEnter() {
+        if (android.os.Build.VERSION.SDK_INT < 30) return false;
+        AccessibilityNodeInfo f = findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        if (f == null || !f.isEditable()) return false;
+        return f.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
     }
 
     private static boolean matches(AccessibilityNodeInfo n, String[] words) {
