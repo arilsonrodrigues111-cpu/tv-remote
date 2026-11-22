@@ -22,26 +22,43 @@ import java.util.Locale;
 public class RemoteAccessibility extends AccessibilityService {
     static volatile RemoteAccessibility instance;
     static volatile long autoAcceptUntil = 0;
+    static volatile long autoAcceptNotBefore = 0;
+    static volatile boolean projectionMode = false;
     private final Handler h = new Handler(Looper.getMainLooper());
 
-    // Textos de botões que podem ser clicados automaticamente (PT/EN/ES)
-    private static final String[] ACCEPT = {
-            "instalar", "install", "atualizar", "update", "reinstalar",
-            "iniciar agora", "começar agora", "start now", "comenzar ahora", "empezar ahora",
-            "permitir", "allow", "ok", "aceitar", "accept", "desinstalar", "uninstall",
-            "concluído", "concluido", "done", "listo", "continuar", "continue",
-            "compartilhar tela", "share screen", "tela inteira", "entire screen"
+    // Botões do instalador de pacotes (instalar/desinstalar/concluir)
+    private static final String[] INSTALL_WORDS = {
+            "instalar", "install", "atualizar", "update", "reinstalar", "desinstalar", "uninstall",
+            "ok", "concluído", "concluido", "done", "listo", "aceptar"
+    };
+    // Botão positivo do diálogo de captura de tela (nunca o seletor "tela inteira/um app")
+    private static final String[] PROJECTION_WORDS = {
+            "iniciar agora", "começar agora", "comecar agora", "start now", "comenzar ahora", "empezar ahora",
+            "iniciar", "começar", "start", "compartilhar", "share", "permitir", "allow"
     };
     private static final String[] CHECKBOX = { "não mostrar novamente", "nao mostrar novamente", "don't show again", "no volver a mostrar" };
-    private static final String[] ACCEPT_IDS = { "ok_button", "button1", "allow_button", "done_button", "install_confirm_question" };
 
     static boolean enabled() { return instance != null; }
 
+    /** Instalação/desinstalação: aceita os botões do instalador. */
     static void autoAccept(long ms) {
+        projectionMode = false;
+        autoAcceptNotBefore = System.currentTimeMillis() + 600;
         autoAcceptUntil = System.currentTimeMillis() + ms;
         final RemoteAccessibility s = instance;
-        if (s != null) s.scheduleScan(0);
+        if (s != null) s.scheduleScan(700);
     }
+
+    /** Captura de tela: espera o diálogo estabilizar e clica só no botão positivo. */
+    static void autoAcceptProjection(long ms, long delayMs) {
+        projectionMode = true;
+        autoAcceptNotBefore = System.currentTimeMillis() + delayMs;
+        autoAcceptUntil = System.currentTimeMillis() + ms;
+        final RemoteAccessibility s = instance;
+        if (s != null) s.scheduleScan(delayMs + 100);
+    }
+
+    static void cancelAutoAccept() { autoAcceptUntil = 0; projectionMode = false; }
 
     /** Abre uma Activity usando o contexto da acessibilidade (isento do bloqueio de background do Android 10+). */
     static void startActivityAny(Context fallback, Intent i) {
@@ -64,7 +81,7 @@ public class RemoteAccessibility extends AccessibilityService {
     @Override public void onInterrupt() {}
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {
-        if (System.currentTimeMillis() < autoAcceptUntil) scheduleScan(150);
+        if (System.currentTimeMillis() < autoAcceptUntil) scheduleScan(300);
     }
 
     private boolean scanPending = false;
@@ -73,10 +90,12 @@ public class RemoteAccessibility extends AccessibilityService {
         scanPending = true;
         h.postDelayed(new Runnable() { public void run() {
             scanPending = false;
-            if (System.currentTimeMillis() >= autoAcceptUntil) return;
+            long now = System.currentTimeMillis();
+            if (now >= autoAcceptUntil) return;
+            if (now < autoAcceptNotBefore) { scheduleScan(autoAcceptNotBefore - now + 50); return; }
             boolean clicked = scanAndAccept();
-            // continua tentando (botão "Instalar" costuma ficar desabilitado por ~1s)
-            scheduleScan(clicked ? 1200 : 700);
+            if (clicked && projectionMode) { cancelAutoAccept(); return; } // um clique só no diálogo de captura
+            scheduleScan(clicked ? 1500 : 700);
         }}, delay);
     }
 
@@ -91,31 +110,38 @@ public class RemoteAccessibility extends AccessibilityService {
             CharSequence pkg = r.getPackageName();
             if (pkg == null) continue;
             String p = pkg.toString();
-            if (!(p.contains("packageinstaller") || p.contains("systemui") || p.contains("permissioncontroller")
-                    || p.equals("android") || p.contains("mediaprojection"))) continue;
-            if (acceptIn(r)) return true;
+            if (p.equals(getPackageName())) continue;
+            boolean installer = p.contains("packageinstaller") || p.contains("permissioncontroller");
+            boolean system = p.contains("systemui") || p.equals("android") || p.contains("mediaprojection");
+            if (projectionMode ? !system : !installer) continue;
+            if (acceptIn(r, projectionMode ? PROJECTION_WORDS : INSTALL_WORDS)) return true;
         }
         return false;
     }
 
-    private boolean acceptIn(AccessibilityNodeInfo root) {
+    private boolean acceptIn(AccessibilityNodeInfo root, String[] words) {
         List<AccessibilityNodeInfo> all = new ArrayList<>();
         collect(root, all, 0);
-        // marca "não mostrar novamente" (Android < 10 lembra o consentimento)
-        for (AccessibilityNodeInfo n : all) {
-            if (n.isCheckable() && !n.isChecked() && matches(n, CHECKBOX)) n.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        if (projectionMode) {
+            // marca "não mostrar novamente" (Android < 10 lembra o consentimento)
+            for (AccessibilityNodeInfo n : all)
+                if (n.isCheckable() && !n.isChecked() && matches(n, CHECKBOX)) n.performAction(AccessibilityNodeInfo.ACTION_CLICK);
         }
-        for (AccessibilityNodeInfo n : all) {
-            if (!n.isEnabled() || !n.isVisibleToUser()) continue;
-            boolean byText = matches(n, ACCEPT);
-            String vid = n.getViewIdResourceName();
-            boolean byId = false;
-            if (vid != null) for (String id : ACCEPT_IDS) if (vid.endsWith("/" + id)) byId = true;
-            if (!(byText || byId)) continue;
-            AccessibilityNodeInfo target = n;
-            while (target != null && !target.isClickable()) target = target.getParent();
-            if (target == null) continue;
-            if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+        // 1º: botão positivo padrão (android:id/button1) com texto conhecido; 2º: qualquer botão com texto conhecido
+        for (int pass = 0; pass < 2; pass++) {
+            for (AccessibilityNodeInfo n : all) {
+                if (!n.isEnabled() || !n.isVisibleToUser() || n.isCheckable()) continue;
+                String vid = n.getViewIdResourceName();
+                boolean positiveId = vid != null && (vid.endsWith("/button1") || vid.endsWith("/ok_button") || vid.endsWith("/done_button"));
+                if (pass == 0 && !positiveId) continue;
+                if (!matches(n, words)) continue;
+                String cls = n.getClassName() == null ? "" : n.getClassName().toString();
+                if (cls.contains("Spinner")) continue;
+                AccessibilityNodeInfo target = n;
+                for (int up = 0; up < 2 && target != null && !target.isClickable(); up++) target = target.getParent();
+                if (target == null || !target.isClickable()) continue;
+                if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+            }
         }
         return false;
     }

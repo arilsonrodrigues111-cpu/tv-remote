@@ -92,6 +92,12 @@ public class AgentService extends Service {
 
     static void sendInfoIfConnected() { if (instance != null) instance.sendInfo(); }
 
+    private static int pendingCode; private static Intent pendingData;
+    static void deliverProjection(Context c, int code, Intent data) {
+        if (instance != null) instance.onProjectionGranted(code, data);
+        else { pendingCode = code; pendingData = data; start(c); }
+    }
+
     @Override public IBinder onBind(Intent i) { return null; }
 
     @Override public void onCreate() {
@@ -112,6 +118,7 @@ public class AgentService extends Service {
         capHandler = new Handler(capThread.getLooper());
         readScreenSize();
         connect();
+        if (pendingData != null) { Intent d = pendingData; pendingData = null; onProjectionGranted(pendingCode, d); }
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -379,7 +386,7 @@ public class AgentService extends Service {
         if (System.currentTimeMillis() - lastRequest < 5000) return;
         lastRequest = System.currentTimeMillis();
         status("info", "Pedindo permissão de captura de tela na TV...");
-        Intent i = new Intent(this, ProjectionActivity.class);
+        Intent i = new Intent(this, ProjectionActivity.class).putExtra("auto", true);
         RemoteAccessibility.startActivityAny(this, i);
     }
 
