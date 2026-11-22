@@ -299,6 +299,9 @@ public class AgentService extends Service {
                 }
                 break;
             case "key": key(acc, m.getString("key")); break;
+            case "tree":
+                sendJson(new JSONObject().put("type", "tree").put("nodes", acc.tree(screenW, screenH)));
+                break;
         }
     }
 

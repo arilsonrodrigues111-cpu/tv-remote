@@ -22,6 +22,8 @@
   input, select { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
   .stage { flex:1; display:flex; min-height:0; }
   .screenwrap { flex:1; display:flex; align-items:center; justify-content:center; padding:12px; min-width:0; position:relative; }
+  #treeov { position:absolute; pointer-events:none; display:none; }
+  #treeov.solo { pointer-events:auto; cursor:crosshair; }
   #screen { max-width:100%; max-height:100%; background:#000; border-radius:6px; user-select:none; -webkit-user-drag:none; cursor:crosshair; outline:none; }
   #placeholder { color:var(--mut); text-align:center; }
   .side { width:300px; border-left:1px solid var(--line); display:flex; flex-direction:column; flex-shrink:0; }
@@ -75,6 +77,7 @@
     <button onclick="key('volup')">🔊</button>
     <button onclick="key('mute')">🔇</button>
     <button onclick="send({type:'startCapture'})" title="Pede o consentimento de captura na TV (o agente tenta aceitar sozinho)">▶ Capturar tela</button>
+    <button id="treebtn" onclick="toggleTree()" title="Mostra os textos e botões da tela da TV (funciona até em apps que deixam a imagem preta)">📝 Textos da tela</button>
     <select id="qual" onchange="setQuality()">
       <option value="640,50,6">Baixa</option>
       <option value="960,60,10" selected>Média</option>
@@ -86,6 +89,7 @@
     <div class="screenwrap">
       <div id="placeholder">Selecione um dispositivo.</div>
       <img id="screen" tabindex="0" style="display:none" alt="">
+      <canvas id="treeov"></canvas>
     </div>
     <div class="side">
       <div class="tabs">
@@ -219,6 +223,7 @@ function connect() {
     else if (m.type === 'status') log(`[${devName(m.device)}] ${m.msg}`, m.level);
     else if (m.type === 'apps') { apps = m.list.sort((a, b) => a.label.localeCompare(b.label)); renderApps(); }
     else if (m.type === 'progress') setProg(m.key || m.name, m.pct, `TV baixando ${m.name}`);
+    else if (m.type === 'tree') { treeNodes = m.nodes || []; drawTree(); }
     else if (m.type === 'files') { filePath = m.path; fileRoot = m.root || fileRoot; renderFiles(m.list); }
     else if (m.type === 'downloadReady') {
       log(`Arquivo pronto: ${m.name}`, 'ok');
@@ -232,12 +237,62 @@ function connect() {
     }
   };
 }
+// ---- Textos da tela (árvore de acessibilidade) ----
+let treeOn = false, treeNodes = [], treeTimer = null;
+function toggleTree() {
+  treeOn = !treeOn; $('treebtn').classList.toggle('pri', treeOn);
+  clearInterval(treeTimer); treeNodes = [];
+  if (treeOn) { send({ type: 'tree' }); treeTimer = setInterval(() => { if (current && ws && ws.readyState === 1) send({ type: 'tree' }); }, 1000); }
+  drawTree();
+}
+function treeRect() {
+  const wrap = document.querySelector('.screenwrap').getBoundingClientRect(), img = $('screen');
+  if (img.style.display !== 'none' && img.naturalWidth) {
+    const r = img.getBoundingClientRect();
+    return { x: r.left - wrap.left, y: r.top - wrap.top, w: r.width, h: r.height, solo: false };
+  }
+  const W = wrap.width - 24, H = wrap.height - 24; let w = W, h = W * 9 / 16; if (h > H) { h = H; w = H * 16 / 9; }
+  return { x: (wrap.width - w) / 2, y: (wrap.height - h) / 2, w, h, solo: true };
+}
+function drawTree() {
+  const c = $('treeov');
+  if (!treeOn) { c.style.display = 'none'; return; }
+  const R = treeRect(), dpr = window.devicePixelRatio || 1;
+  c.style.display = 'block'; c.style.left = R.x + 'px'; c.style.top = R.y + 'px'; c.style.width = R.w + 'px'; c.style.height = R.h + 'px';
+  c.classList.toggle('solo', R.solo);
+  c.width = Math.round(R.w * dpr); c.height = Math.round(R.h * dpr);
+  const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, R.w, R.h);
+  if (R.solo) { g.fillStyle = '#0b1220'; g.fillRect(0, 0, R.w, R.h); }
+  let focus = null;
+  for (const n of treeNodes) {
+    const [x, y, w, h, t, f] = n, X = x * R.w / 1000, Y = y * R.h / 1000, W = w * R.w / 1000, H = h * R.h / 1000;
+    if (f & 1) { focus = [X, Y, W, H]; }
+    if (f & 2 || f & 4) { g.strokeStyle = 'rgba(96,165,250,.55)'; g.lineWidth = 1; g.strokeRect(X + .5, Y + .5, W - 1, H - 1); }
+    if (t) {
+      const fs = Math.max(9, Math.min(16, H * 0.6));
+      g.font = fs + 'px system-ui,sans-serif';
+      const tw = Math.min(g.measureText(t).width + 6, Math.max(W, 40));
+      g.fillStyle = 'rgba(0,0,0,.72)'; g.fillRect(X, Y, tw, fs + 4);
+      g.fillStyle = (f & 8) ? '#4ade80' : '#fff'; g.save(); g.beginPath(); g.rect(X, Y, tw, fs + 4); g.clip();
+      g.fillText(t, X + 3, Y + fs); g.restore();
+    }
+  }
+  if (focus) { g.strokeStyle = '#f97316'; g.lineWidth = 3; g.strokeRect(focus[0] + 1.5, focus[1] + 1.5, focus[2] - 3, focus[3] - 3); }
+  if (!treeNodes.length) { g.fillStyle = '#94a3b8'; g.font = '14px system-ui'; g.fillText('Nenhum texto encontrado nesta tela (vídeo puro ou app sem textos).', 12, 24); }
+}
+window.addEventListener('resize', () => treeOn && drawTree());
+$('treeov').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  send({ type: 'tap', x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height });
+  setTimeout(() => send({ type: 'tree' }), 400);
+});
 const devName = (id) => (devices.find((d) => d.id === id) || {}).name || id;
 function send(cmd) { if (!current) return log('Selecione um dispositivo', 'error'); ws.send(JSON.stringify({ type: 'cmd', id: current, cmd })); }
 function watch(id) {
   current = id; ws.send(JSON.stringify({ type: 'watch', id }));
   $('devname').textContent = devName(id); apps = []; renderApps();
   filePath = ''; fileRoot = ''; if ($('filelist')) $('filelist').textContent = 'Clique em Arquivos para abrir.';
+  treeNodes = []; if (treeOn) drawTree();
   $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').textContent = 'Aguardando imagem...';
   renderDevices(); setQuality();
 }
@@ -280,7 +335,7 @@ function renderApps() {
     el.appendChild(row);
   }
 }
-function key(k) { send({ type: 'key', key: k }); }
+function key(k) { send({ type: 'key', key: k }); if (treeOn) setTimeout(() => send({ type: 'tree' }), 350); }
 function sendText() { const t = $('txt').value; if (t) { send({ type: 'text', text: t }); $('txt').value = ''; } }
 function setQuality() { if (!current) return; const [max, q, fps] = $('qual').value.split(',').map(Number); send({ type: 'quality', max, q, fps }); }
 function log(msg, level = '') {

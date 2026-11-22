@@ -296,4 +296,37 @@ public class RemoteAccessibility extends AccessibilityService {
         if (n.isFocusable() && n.isVisibleToUser() && n.isEnabled()) out.add(n);
         for (int i = 0; i < n.getChildCount(); i++) collectFocusable(n.getChild(i), out, d + 1);
     }
+
+    /** Lê textos/botões de todas as janelas (funciona mesmo em apps que bloqueiam a imagem). */
+    org.json.JSONArray tree(int sw, int sh) {
+        org.json.JSONArray out = new org.json.JSONArray();
+        List<AccessibilityNodeInfo> roots = new ArrayList<>();
+        try { for (AccessibilityWindowInfo w : getWindows()) { AccessibilityNodeInfo r = w.getRoot(); if (r != null) roots.add(r); } } catch (Exception ignored) {}
+        if (roots.isEmpty()) { AccessibilityNodeInfo a = getRootInActiveWindow(); if (a != null) roots.add(a); }
+        for (AccessibilityNodeInfo r : roots) walkTree(r, out, sw, sh, 0);
+        return out;
+    }
+    private void walkTree(AccessibilityNodeInfo n, org.json.JSONArray out, int sw, int sh, int d) {
+        if (n == null || d > 45 || out.length() > 400) return;
+        if (n.isVisibleToUser()) {
+            CharSequence t = n.getText();
+            if (t == null || t.length() == 0) t = n.getContentDescription();
+            boolean focused = n.isFocused() || n.isAccessibilityFocused();
+            boolean click = n.isClickable() || n.isFocusable();
+            String txt = t == null ? "" : t.toString().trim();
+            if (txt.length() > 120) txt = txt.substring(0, 120) + "…";
+            if (txt.length() > 0 || focused || n.isEditable()) {
+                Rect r = new Rect(); n.getBoundsInScreen(r);
+                if (r.width() > 2 && r.height() > 2 && sw > 0 && sh > 0) {
+                    try {
+                        out.put(new org.json.JSONArray()
+                                .put(Math.round(r.left * 1000f / sw)).put(Math.round(r.top * 1000f / sh))
+                                .put(Math.round(r.width() * 1000f / sw)).put(Math.round(r.height() * 1000f / sh))
+                                .put(txt).put((focused ? 1 : 0) | (click ? 2 : 0) | (n.isEditable() ? 4 : 0) | (n.isChecked() ? 8 : 0)));
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+        for (int i = 0; i < n.getChildCount(); i++) walkTree(n.getChild(i), out, sw, sh, d + 1);
+    }
 }
