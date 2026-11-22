@@ -108,6 +108,8 @@ public class HomeActivity extends Activity {
 
     @Override protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
+        setIntent(i);
+        if (hint != null && moving < 0) hint.setText(baseHint());
         // apertou a casinha estando aqui: volta para o começo da fileira
         if (moving >= 0) endMove();
         lastFocusPkg = null;
@@ -115,7 +117,12 @@ public class HomeActivity extends Activity {
         focusLast();
     }
 
-    @Override public void onBackPressed() { if (moving >= 0) endMove(); /* tela inicial: voltar não sai */ }
+    private boolean preview() { return getIntent() != null && getIntent().getBooleanExtra("preview", false) && !Launcher.on(this); }
+
+    @Override public void onBackPressed() {
+        if (moving >= 0) { endMove(); return; }
+        if (preview()) finish(); // prévia: Voltar sai. Como tela inicial de verdade, Voltar não sai.
+    }
 
     // ---------------- montagem da tela ----------------
     private View build() {
@@ -174,12 +181,17 @@ public class HomeActivity extends Activity {
         slp.topMargin = px(350);
         root.addView(scroll, slp);
 
-        hint = txt("Segure OK em um app para mudar de lugar", 22, Color.rgb(120, 120, 120), false);
+        hint = txt(baseHint(), 22, Color.rgb(120, 120, 120), false);
         hint.setGravity(Gravity.CENTER);
         FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
         hlp.bottomMargin = px(64);
         root.addView(hint, hlp);
         return root;
+    }
+
+    private String baseHint() {
+        return preview() ? "Prévia da tela inicial TechSolutions  ·  Voltar para sair  ·  Segure OK em um app para mudar de lugar"
+                         : "Segure OK em um app para mudar de lugar";
     }
 
     private TextView txt(String s, float designPx, int color, boolean bold) {
@@ -425,7 +437,7 @@ public class HomeActivity extends Activity {
         moving = -1;
         Launcher.saveOrder(this, pkgs(items));
         cache = new ArrayList<>(items);
-        hint.setText("Segure OK em um app para mudar de lugar");
+        hint.setText(baseHint());
         hint.setTextColor(Color.rgb(120, 120, 120));
         View f = getCurrentFocus();
         if (f != null && f.getParent() == row) style(f, true);

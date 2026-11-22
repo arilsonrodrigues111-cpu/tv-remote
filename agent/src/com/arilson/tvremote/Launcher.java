@@ -36,7 +36,28 @@ final class Launcher {
     private Launcher() {}
 
     private static SharedPreferences sp(Context c) { return Prefs.sp(c); }
-    static ComponentName comp(Context c) { return new ComponentName(c.getPackageName(), HomeActivity.class.getName()); }
+    /** O "interruptor" da tela inicial: o alias com a categoria HOME (a tela em si é a HomeActivity). */
+    static ComponentName comp(Context c) { return new ComponentName(c.getPackageName(), c.getPackageName() + ".HomeAlias"); }
+
+    /** A tela em si nunca fica desativada (a versão de teste 2.5 desativava ela direto). */
+    static void fixComponents(Context c) {
+        try {
+            PackageManager pm = c.getPackageManager();
+            ComponentName h = new ComponentName(c, HomeActivity.class);
+            if (pm.getComponentEnabledSetting(h) == PackageManager.COMPONENT_ENABLED_STATE_DISABLED)
+                pm.setComponentEnabledSetting(h, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, PackageManager.DONT_KILL_APP);
+            // se o painel desligou, o interruptor fica desligado; se ligou, fica ligado
+            int want = on(c) ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+            if (pm.getComponentEnabledSetting(comp(c)) != want && (on(c) || pm.getComponentEnabledSetting(comp(c)) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED))
+                pm.setComponentEnabledSetting(comp(c), want, PackageManager.DONT_KILL_APP);
+        } catch (Throwable ignored) {}
+    }
+
+    /** Abre a tela na TV sem mudar nada (prévia: Voltar sai). */
+    static void preview(Context c) {
+        Intent i = new Intent(c, HomeActivity.class).putExtra("preview", true);
+        RemoteAccessibility.startActivityAny(c, i);
+    }
     static boolean on(Context c) { return sp(c).getBoolean("launcher_on", false); }
 
     /** Apps que não aparecem na fileira (do sistema e que só atrapalham). O painel pode mostrar/esconder. */
@@ -127,6 +148,20 @@ final class Launcher {
         return false;
     }
 
+    /** Prioridade do launcher de fábrica: acima de 0 o Android sempre escolhe ele (app comum não pode ter prioridade). */
+    static int stockPriority(Context c) {
+        int max = 0;
+        try {
+            for (ResolveInfo r : c.getPackageManager().queryIntentActivities(homeIntent(), 0)) {
+                if (r.activityInfo == null) continue;
+                String p = r.activityInfo.packageName;
+                if (p.equals(c.getPackageName()) || isSettings(p)) continue;
+                max = Math.max(max, r.priority);
+            }
+        } catch (Throwable ignored) {}
+        return max;
+    }
+
     static List<String> disabledByUs(Context c) { return new ArrayList<>(csv(sp(c).getString("launcher_stock_off", ""))); }
 
     static void putInfo(Context c, JSONObject info) {
@@ -138,6 +173,7 @@ final class Launcher {
             for (ComponentName cn : stockHomes(c)) st.put(cn.getPackageName());
             info.put("stockHomes", st);
             info.put("stockOff", new JSONArray(disabledByUs(c)));
+            info.put("stockPriority", stockPriority(c));
         } catch (Throwable ignored) {}
     }
 
@@ -168,8 +204,10 @@ final class Launcher {
             sh(c, cmd.toString(), new AdbShell.Result() { public void done(String out) {
                 if (!off.isEmpty()) sp(c).edit().putString("launcher_stock_off", join(off)).apply();
                 boolean ok = comp(c).getPackageName().equals(currentHome(c));
-                done.done(ok, ok ? "Launcher TechSolutions é a tela inicial agora" + (off.isEmpty() ? "" : " (launcher de fábrica desativado)")
-                        : "Liguei, mas a TV ainda não aceitou como padrão: " + tail(out));
+                String why = stockPriority(c) > 0
+                        ? "O launcher de fábrica tem prioridade neste aparelho e a TV continua abrindo ele. Para o nosso ser a tela inicial, desative o de fábrica."
+                        : "Liguei, mas a TV ainda não aceitou como padrão: " + tail(out);
+                done.done(ok, ok ? "Launcher TechSolutions é a tela inicial agora" + (off.isEmpty() ? "" : " (launcher de fábrica desativado)") : why);
             }});
         } else {
             sp(c).edit().putBoolean("launcher_on", false).apply();
@@ -255,6 +293,9 @@ final class Launcher {
     static void onWindow(Context c, AccessibilityEvent e) {
         if (e.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
         if (!on(c)) return;
+        // só logo depois de ligar a TV (ROM que abre o launcher dela no boot). Fora disso, quem manda é o padrão gravado:
+        // ficar trocando a cada clique na casinha abriria os dois launchers e deixaria tudo mais lento.
+        if (SystemClock.elapsedRealtime() > 4 * 60 * 1000) return;
         CharSequence pk = e.getPackageName(), cl = e.getClassName();
         if (pk == null || cl == null) return;
         String p = pk.toString();

@@ -176,6 +176,7 @@ public class AgentService extends Service {
         connect();
         AdbShell.get(this).ensure();
         main.postDelayed(accWatch, 6000);
+        try { Launcher.fixComponents(this); } catch (Throwable ignored) {}
         // depois de ligar a TV: se o launcher TechSolutions estiver ligado, garante que continua sendo a tela inicial
         main.postDelayed(new Runnable() { public void run() { try { Launcher.guard(AgentService.this, "TV ligou", true); } catch (Throwable ignored) {} } }, 12000);
         // vigia a lista de acessibilidade: se a TV tirar o TechSolutions, recoloca na hora (com permissão)
@@ -352,6 +353,7 @@ public class AgentService extends Service {
                 }});
                 return;
             case "launcherApps": sendLauncherApps(); return;
+            case "launcherPreview": Launcher.preview(this); status("ok", "Prévia da tela inicial aberta na TV (Voltar sai)"); return;
             case "launcherSet": Launcher.applyPanel(this, m); sendLauncherApps(); return;
             case "pkgAction": pkgAction(m.getString("action"), m.getString("pkg"), m.optBoolean("sys"), m.optString("label", m.getString("pkg"))); return;
             case "launch": launch(m.getString("pkg")); return;

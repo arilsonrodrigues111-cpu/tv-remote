@@ -36,20 +36,22 @@
         <activity android:name=".MessageActivity" android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true" android:taskAffinity="" />
-        <!-- launcher TechSolutions: vem desligado; o painel liga por TV -->
-        <activity android:name=".HomeActivity" android:exported="true" android:enabled="false"
+        <!-- launcher TechSolutions: a tela existe sempre (prévia); vira tela inicial quando o painel liga o HomeAlias -->
+        <activity android:name=".HomeActivity" android:exported="false"
             android:label="TechSolutions Início"
-            android:launchMode="singleTask" android:stateNotNeeded="true" android:clearTaskOnLaunch="true"
+            android:launchMode="singleTask" android:stateNotNeeded="true"
             android:excludeFromRecents="true" android:taskAffinity="com.arilson.tvremote.home"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|smallestScreenSize|uiMode|density">
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|smallestScreenSize|uiMode|density" />
+        <activity-alias android:name=".HomeAlias" android:targetActivity=".HomeActivity"
+            android:enabled="false" android:exported="true" android:label="TechSolutions Início">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-        </activity>
+        </activity-alias>
         <activity android:name=".GuideActivity" android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <service android:name=".AgentService" android:exported="false" />

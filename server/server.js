@@ -215,7 +215,9 @@ wss.on('connection', (ws, req) => {
     const id = (url.searchParams.get('id') || '').slice(0, 64);
     if (!id) return ws.close(4002, 'id requerido');
     const old = agents.get(id);
+    // painéis que estavam olhando esta TV continuam olhando quando ela reconecta (atualização do app, queda de internet)
     const watchers = old ? old.watchers : new Set();
+    for (const p of panels) if (p.watching === id && p.readyState === 1) watchers.add(p);
     if (old && old.ws !== ws) try { old.ws.terminate(); } catch {}
     const a = { ws, info: { name: url.searchParams.get('name') || id, online: true, since: Date.now(), ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress }, watchers };
     agents.set(id, a);
