@@ -115,9 +115,10 @@ public class MainActivity extends Activity {
         boolean inst = Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls();
         bAcc.setText((acc ? "✔ " : "1. ") + "Controle remoto (Acessibilidade)" + (acc ? " – ativo" : " – toque para ativar"));
         bInst.setText((inst ? "✔ " : "2. ") + "Instalar apps" + (inst ? " – permitido" : " – toque para permitir"));
-        bCap.setText("3. Ver a tela – toque para permitir (o suporte também pode pedir)");
+        boolean cap = AgentService.capturing();
+        bCap.setText((cap ? "✔ " : "3. ") + "Ver a tela" + (cap ? " – permitido" : " – toque para permitir"));
         status.setText("Servidor: " + AgentService.connState + "\n" +
-                (acc && inst ? "Tudo pronto. Pode fechar este app." : "Conclua os passos abaixo."));
+                (acc && inst && cap ? "Tudo pronto. Pode fechar este app." : "Conclua os passos abaixo."));
     }
 
     @Override protected void onResume() { super.onResume(); h.post(tick); }

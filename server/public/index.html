@@ -175,6 +175,7 @@ function connect() {
     else if (m.type === 'apps') { apps = m.list.sort((a, b) => a.label.localeCompare(b.label)); renderApps(); }
     else if (m.type === 'progress') setProg(m.key || m.name, m.pct, `TV baixando ${m.name}`);
     else if (m.type === 'screen') {
+      if (m.capturing && $('screen').style.display === 'none') { $('placeholder').textContent = 'Aguardando imagem da TV...'; }
       if (!m.capturing) { $('screen').style.display = 'none'; $('placeholder').style.display = '';
         $('placeholder').innerHTML = 'Captura de tela não ativa na TV.<br><br><button onclick="send({type:\'startCapture\'})">▶ Iniciar captura</button>'; }
     }
@@ -197,7 +198,9 @@ function renderDevices() {
     div.className = 'dev' + (d.id === current ? ' sel' : '');
     div.innerHTML = `<span class="dot"></span><b></b><small></small>`;
     div.querySelector('b').textContent = d.name;
-    div.querySelector('small').textContent = [d.model, d.android && 'Android ' + d.android, d.ip].filter(Boolean).join(' · ');
+    div.querySelector('small').textContent = [d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app ' + d.agentVersion].filter(Boolean).join(' · ')
+      + '\n' + (d.capturing ? '📺 tela autorizada' : '⚠ tela não autorizada') + (d.accessibility === false ? ' · ⚠ acessibilidade off' : '');
+    div.querySelector('small').style.whiteSpace = 'pre-line';
     div.onclick = () => watch(d.id);
     el.appendChild(div);
   }

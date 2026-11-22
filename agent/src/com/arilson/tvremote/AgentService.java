@@ -224,7 +224,7 @@ public class AgentService extends Service {
         String type = m.optString("type");
         RemoteAccessibility acc = RemoteAccessibility.instance;
         switch (type) {
-            case "hello": sendInfo(); sendScreenState(); return;
+            case "hello": sendInfo(); sendScreenState(); forceKeyframe(); if (streamWanted && projection != null) ensureDisplay(); return;
             case "stream":
                 streamWanted = m.optBoolean("on");
                 if (streamWanted) {
@@ -390,12 +390,24 @@ public class AgentService extends Service {
         RemoteAccessibility.startActivityAny(this, i);
     }
 
+    static boolean capturing() { AgentService s = instance; return s != null && s.projection != null; }
+
     void onProjectionGranted(int code, Intent data) {
         MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-        projection = mpm.getMediaProjection(code, data);
-        if (projection == null) { status("error", "Projeção nula"); return; }
-        projection.registerCallback(new MediaProjection.Callback() {
-            @Override public void onStop() { main.post(new Runnable() { public void run() { stopCapture(false); sendScreenState(); sendInfo(); } }); }
+        // encerra a projeção anterior (se houver) antes de usar a nova
+        if (projection != null) { MediaProjection old = projection; projection = null; releaseDisplay(); try { old.stop(); } catch (Exception ignored) {} }
+        final MediaProjection mp;
+        try { mp = mpm.getMediaProjection(code, data); }
+        catch (Exception e) { status("error", "Falha ao obter captura: " + e.getMessage()); return; }
+        if (mp == null) { status("error", "Projeção nula"); return; }
+        projection = mp;
+        mp.registerCallback(new MediaProjection.Callback() {
+            @Override public void onStop() { main.post(new Runnable() { public void run() {
+                if (projection != mp) return; // é uma projeção antiga
+                releaseDisplay(); projection = null;
+                status("error", "A TV encerrou o compartilhamento de tela");
+                sendScreenState(); sendInfo();
+            } }); }
         }, main);
         status("ok", "Captura de tela autorizada");
         sendInfo();
@@ -408,50 +420,80 @@ public class AgentService extends Service {
         readScreenSize();
         float scale = Math.min(1f, (float) maxSize / Math.max(screenW, screenH));
         int w = Math.max(2, Math.round(screenW * scale)) & ~1, h = Math.max(2, Math.round(screenH * scale)) & ~1;
-        reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
-        final int fw = w, fh = h;
+        reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 3);
+        frameW = w; frameH = h;
         reader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
-            @Override public void onImageAvailable(ImageReader r) { onFrame(r, fw, fh); }
+            @Override public void onImageAvailable(ImageReader r) { onFrame(r); }
         }, capHandler);
         try {
             vdisplay = projection.createVirtualDisplay("tvremote", w, h, 160,
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, capHandler);
+            forceKeyframe();
+            capHandler.removeCallbacks(sender);
+            capHandler.post(sender);
         } catch (Exception e) {
             status("error", "Falha ao iniciar captura: " + e.getMessage());
-            projection = null;
+            releaseDisplay();
         }
     }
 
+    // Último quadro recebido (copiado do ImageReader); o envio é feito pelo "sender",
+    // que respeita o FPS e reenvia a tela a cada 2 s mesmo se nada mudar.
+    private final Object frameLock = new Object();
     private Bitmap frameBmp;
-    private void onFrame(ImageReader r, int w, int h) {
+    private volatile boolean frameDirty = false;
+    private volatile long lastSent = 0;
+    private int frameW, frameH;
+
+    void forceKeyframe() { lastSent = 0; frameDirty = true; }
+
+    private void onFrame(ImageReader r) {
         Image img = null;
         try {
             img = r.acquireLatestImage();
             if (img == null) return;
-            long now = System.currentTimeMillis();
-            WebSocket sock = ws;
-            if (!streamWanted || !connected || sock == null) return;
-            if (now - lastFrame < 1000 / fps) return;
-            if (sock.queueSize() > 512 * 1024) return; // rede lenta: pula frame
-            lastFrame = now;
             Image.Plane p = img.getPlanes()[0];
             ByteBuffer buf = p.getBuffer();
             int rowPx = p.getRowStride() / p.getPixelStride();
-            if (frameBmp == null || frameBmp.getWidth() != rowPx || frameBmp.getHeight() != h)
-                frameBmp = Bitmap.createBitmap(rowPx, h, Bitmap.Config.ARGB_8888);
-            frameBmp.copyPixelsFromBuffer(buf);
-            Bitmap out = rowPx == w ? frameBmp : Bitmap.createBitmap(frameBmp, 0, 0, w, h);
-            ByteArrayOutputStream bos = new ByteArrayOutputStream(64 * 1024);
-            out.compress(Bitmap.CompressFormat.JPEG, quality, bos);
-            if (out != frameBmp) out.recycle();
-            sock.send(ByteString.of(bos.toByteArray()));
+            int h = img.getHeight();
+            synchronized (frameLock) {
+                if (frameBmp == null || frameBmp.getWidth() != rowPx || frameBmp.getHeight() != h)
+                    frameBmp = Bitmap.createBitmap(rowPx, h, Bitmap.Config.ARGB_8888);
+                frameBmp.copyPixelsFromBuffer(buf);
+                frameDirty = true;
+            }
         } catch (Exception ignored) {
         } finally { if (img != null) img.close(); }
     }
 
+    private final Runnable sender = new Runnable() { public void run() {
+        if (vdisplay == null) return;
+        long now = System.currentTimeMillis();
+        try {
+            WebSocket sock = ws;
+            boolean due = frameDirty || now - lastSent > 2000;
+            if (streamWanted && connected && sock != null && due && sock.queueSize() < 512 * 1024) {
+                byte[] jpg = null;
+                synchronized (frameLock) {
+                    if (frameBmp != null) {
+                        Bitmap out = frameBmp.getWidth() == frameW ? frameBmp : Bitmap.createBitmap(frameBmp, 0, 0, Math.min(frameW, frameBmp.getWidth()), frameBmp.getHeight());
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream(64 * 1024);
+                        out.compress(Bitmap.CompressFormat.JPEG, quality, bos);
+                        if (out != frameBmp) out.recycle();
+                        jpg = bos.toByteArray();
+                        frameDirty = false;
+                    }
+                }
+                if (jpg != null) { sock.send(ByteString.of(jpg)); lastSent = now; }
+            }
+        } catch (Exception ignored) {}
+        capHandler.postDelayed(this, Math.max(30, 1000 / Math.max(1, fps)));
+    }};
+
     private void releaseDisplay() {
-        if (vdisplay != null) { vdisplay.release(); vdisplay = null; }
-        if (reader != null) { reader.close(); reader = null; }
+        if (capHandler != null) capHandler.removeCallbacks(sender);
+        if (vdisplay != null) { try { vdisplay.release(); } catch (Exception ignored) {} vdisplay = null; }
+        if (reader != null) { try { reader.close(); } catch (Exception ignored) {} reader = null; }
     }
 
     private void stopCapture(boolean stopProjection) {
