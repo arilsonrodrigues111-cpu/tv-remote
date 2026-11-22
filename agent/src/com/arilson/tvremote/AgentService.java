@@ -106,6 +106,8 @@ public class AgentService extends Service {
             a.run("pm grant " + me + " android.permission.WRITE_SECURE_SETTINGS");
             // só mexe na acessibilidade se o controle NÃO estiver rodando (antes reescrevia sempre e podia derrubar)
             if (!AccGuard.running()) AccGuard.repair(s, "modo avançado", true);
+            // launcher TechSolutions ligado: confere se continua sendo a tela inicial
+            try { Launcher.guard(s, "modo avançado conectou", false); } catch (Throwable ignored) {}
             status("ok", "Modo avançado ativo: controle total liberado");
         }
         s.sendInfo();
@@ -174,6 +176,8 @@ public class AgentService extends Service {
         connect();
         AdbShell.get(this).ensure();
         main.postDelayed(accWatch, 6000);
+        // depois de ligar a TV: se o launcher TechSolutions estiver ligado, garante que continua sendo a tela inicial
+        main.postDelayed(new Runnable() { public void run() { try { Launcher.guard(AgentService.this, "TV ligou", true); } catch (Throwable ignored) {} } }, 12000);
         // vigia a lista de acessibilidade: se a TV tirar o TechSolutions, recoloca na hora (com permissão)
         try {
             getContentResolver().registerContentObserver(android.provider.Settings.Secure.getUriFor(AccGuard.KEY), false,
@@ -273,6 +277,12 @@ public class AgentService extends Service {
         }});
     }
 
+    void sendLauncherApps() {
+        final android.content.Context c = this;
+        new Thread(new Runnable() { public void run() {
+            try { sendJson(Launcher.appsJson(c)); } catch (Throwable e) { status("error", "Lista do launcher: " + e); }
+        }}, "launcher-apps").start();
+    }
     void sendJson(JSONObject o) { if (ws != null && connected) ws.send(o.toString()); }
 
     void sendInfo() {
@@ -294,6 +304,7 @@ public class AgentService extends Service {
                     .put("storage", storageInfo())
                     .put("adb", AdbShell.isReady() ? "ativo" : AdbShell.state)
                     .put("agentVersion", BuildInfo.VERSION);
+            Launcher.putInfo(this, info);
             sendJson(new JSONObject().put("type", "info").put("info", info));
         } catch (Exception ignored) {}
     }
@@ -326,6 +337,22 @@ public class AgentService extends Service {
             case "info": sendInfo(); return;
             case "apps": sendApps(); return;
             case "allApps": sendAllApps(); return;
+            case "launcher": {
+                final boolean on = m.optBoolean("on");
+                Launcher.setOn(this, on, m.optBoolean("stock"), new Launcher.Done() { public void done(boolean ok, String msg) {
+                    status(ok ? "ok" : "error", msg);
+                    main.post(new Runnable() { public void run() { sendInfo(); sendLauncherApps(); } });
+                }});
+                return;
+            }
+            case "launcherStock":
+                Launcher.setStock(this, m.optBoolean("disable"), new Launcher.Done() { public void done(boolean ok, String msg) {
+                    status(ok ? "ok" : "error", msg);
+                    main.post(new Runnable() { public void run() { sendInfo(); } });
+                }});
+                return;
+            case "launcherApps": sendLauncherApps(); return;
+            case "launcherSet": Launcher.applyPanel(this, m); sendLauncherApps(); return;
             case "pkgAction": pkgAction(m.getString("action"), m.getString("pkg"), m.optBoolean("sys"), m.optString("label", m.getString("pkg"))); return;
             case "launch": launch(m.getString("pkg")); return;
             case "uninstall": uninstall(m.getString("pkg")); return;

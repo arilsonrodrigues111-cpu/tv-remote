@@ -73,7 +73,13 @@
   .bdg.warn { color:#fcd34d; border-color:#5b4a1d; background:#2a2210; }
   /* limpeza de apps */
   .appseg { margin:0 0 10px; }
+  .appseg { display:grid; grid-template-columns:1fr 1fr; }
   .appseg button { white-space:nowrap; padding:6px 2px; font-size:12px; }
+  .lrow { display:flex; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid #1c2640; font-size:12.5px; }
+  .lrow b { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+  .lrow.off b { color:var(--mut); font-weight:400; text-decoration:line-through; }
+  .lrow .n { width:20px; color:var(--mut); font-size:11px; text-align:right; }
+  .lrow button { padding:2px 8px; font-size:11.5px; }
   .capp { padding:8px 2px 9px; border-bottom:1px solid #1c2640; }
   .capp .l1 { display:flex; align-items:center; gap:7px; }
   .capp .l1 b { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
@@ -84,6 +90,7 @@
   .capp .acts { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 0 22px; }
   .capp .acts button { padding:3px 9px; font-size:11.5px; }
   .capp .acts button.danger { border-color:#5b2323; color:#fca5a5; }
+  button.danger { border-color:#5b2323; color:#fca5a5; }
   .capp.off b { color:var(--mut); text-decoration:line-through; }
   .cgrp { display:flex; align-items:baseline; gap:6px; margin:14px 0 2px; }
   .cgrp h4 { margin:0; font-size:12.5px; }
@@ -449,6 +456,7 @@
             <button data-m="tv" class="on">Apps da TV</button>
             <button data-m="all">🧹 Limpeza</button>
             <button data-m="perf">⚡ Desempenho</button>
+            <button data-m="home">🏠 Tela inicial</button>
           </div>
           <div class="row" id="appqrow" style="margin-bottom:8px">
             <input id="appq" class="grow" placeholder="🔎 Filtrar apps" oninput="renderApps()">
@@ -566,7 +574,8 @@ function connect() {
       return;
     }
     const m = JSON.parse(ev.data);
-    if (m.type === 'devices') { devices = m.list; renderDevices(); }
+    if (m.type === 'devices') { devices = m.list; renderDevices(); if (appMode === 'home' && !homeBusy) renderApps(); }
+    else if (m.type === 'launcherApps') { launcherApps = m.list || []; if (appMode === 'home') renderApps(); }
     else if (m.type === 'status') { log(`[${devName(m.device)}] ${m.msg}`, m.level); if (m.device === current || !m.device) toast(m.msg, m.level); }
     else if (m.type === 'apps') { apps = m.list.sort((a, b) => a.label.localeCompare(b.label)); renderApps(); }
     else if (m.type === 'progress') setProg(m.key || m.name, m.pct, `TV baixando ${m.name}`);
@@ -832,7 +841,8 @@ function togglePause(force) {
 function watch(id) {
   current = id; ws.send(JSON.stringify({ type: 'watch', id }));
   if (paused) { paused = false; const b = $('pausebtn'); b.textContent = '⏸ Pausar imagem'; b.classList.remove('accent'); }
-  apps = []; allApps = null; perf = null; perfBusy = false; appSel.clear(); renderApps();
+  apps = []; allApps = null; perf = null; perfBusy = false; launcherApps = null; appSel.clear(); renderApps();
+  if (appMode === 'home') setTimeout(() => { if (current === id) { send({ type: 'launcherApps' }); send({ type: 'allApps' }); } }, 600);
   if (appMode === 'perf') setTimeout(() => { if (current === id) { measurePerf(); send({ type: 'allApps' }); } }, 600);
   imeWasOpen = false; imeHide(false);
   if (appMode === 'all') refreshApps();
@@ -953,9 +963,11 @@ document.querySelectorAll('#appseg button').forEach((b) => b.onclick = () => {
   appMode = b.dataset.m; document.querySelectorAll('#appseg button').forEach((x) => x.classList.toggle('on', x === b));
   if (appMode === 'all' && !allApps) refreshApps(); else if (appMode === 'tv' && !apps.length) send({ type: 'apps' });
   else if (appMode === 'perf') { if (!perf) measurePerf(); if (!allApps) send({ type: 'allApps' }); }
+  else if (appMode === 'home') { send({ type: 'launcherApps' }); if (!allApps) send({ type: 'allApps' }); }
   renderApps();
 });
 function refreshApps() {
+  if (appMode === 'home') return send({ type: 'launcherApps' });
   if (appMode === 'perf') return measurePerf();
   if (appMode === 'all') { allApps = null; $('applist').innerHTML = '<span class="hint">Lendo todos os apps da TV (inclusive os de fábrica)…</span>'; send({ type: 'allApps' }); }
   else send({ type: 'apps' });
@@ -1044,6 +1056,73 @@ function bulk(action) {
   appSel.clear(); updBulk();
 }
 function updBulk() { const n = appSel.size; $('bulkbar').classList.toggle('on', n > 0 && appMode === 'all'); $('bulkn').textContent = n + ' selecionado(s):'; }
+// ===== Tela inicial (launcher TechSolutions) =====
+let launcherApps = null, homeBusy = false;
+function homeLabel(pkg) {
+  if (!pkg) return '?'; if (pkg === 'android') return 'a TV pergunta qual usar';
+  const a = (allApps || []).find((x) => x.pkg === pkg); return a ? a.label : pkg;
+}
+function launcherOn(on) {
+  const d = devices.find((x) => x.id === current) || {};
+  const stock = on && $('hmStock') ? $('hmStock').checked : false;
+  const ask = on ? `Ligar a tela inicial TechSolutions nesta TV?${stock ? '\nO launcher de fábrica vai ser desativado (fica guardado e volta com um clique aqui).' : ''}`
+                 : 'Voltar para o launcher original desta TV?' + ((d.stockOff || []).length ? '\nO launcher de fábrica vai ser ativado de novo.' : '');
+  if (!confirm(ask)) return;
+  homeBusy = true; renderApps(); setTimeout(() => { homeBusy = false; renderApps(); }, 15000);
+  send({ type: 'launcher', on, stock });
+}
+function launcherStock(disable) {
+  if (!confirm(disable ? 'Desativar o launcher de fábrica? Ele para de rodar por trás e não volta sozinho. Fica guardado e dá para ativar de novo aqui.' : 'Ativar o launcher de fábrica de novo? (O TechSolutions continua sendo a tela inicial.)')) return;
+  send({ type: 'launcherStock', disable });
+}
+function launcherMove(i, d) {
+  const l = launcherApps.slice(); const j = i + d; if (j < 0 || j >= l.length) return;
+  [l[i], l[j]] = [l[j], l[i]]; launcherApps = l; renderApps();
+  send({ type: 'launcherSet', order: l.map((x) => x.pkg) });
+}
+function launcherHide(pkg, hide) { send({ type: 'launcherSet', [hide ? 'hide' : 'show']: pkg }); }
+function renderHome() {
+  const el = $('applist'); el.innerHTML = '';
+  if ($('appqrow')) $('appqrow').style.display = 'none';
+  const d = devices.find((x) => x.id === current);
+  if (!d) return;
+  if (!(parseFloat(d.agentVersion) >= 2.5)) { el.innerHTML = '<div class="warnbox">Para usar a tela inicial TechSolutions, atualize o app desta TV para a versão 2.5 (Mais › Atualizar o app da TV).</div>'; return; }
+  const adb = d.adb === 'ativo', on = !!d.launcher, off = d.stockOff || [], stock = d.stockHomes || [];
+  const box = document.createElement('div'); box.className = 'sec';
+  let h = `<h3>🏠 Tela inicial TechSolutions</h3>
+    <div style="font-size:12.5px;margin-bottom:8px">Agora a TV abre: <b>${esc(d.home === allMeta.me || (d.home || '').startsWith('com.arilson') ? 'TechSolutions' : homeLabel(d.home))}</b></div>`;
+  if (homeBusy) h += '<div class="hint" style="margin-bottom:8px">Aplicando na TV…</div>';
+  if (!adb) h += '<div class="warnbox">Sem o Modo avançado a TV pode voltar para o launcher antigo quando desligar da tomada. Ative o Modo avançado (aba Liberar) para gravar como padrão de verdade.</div>';
+  if (!on) {
+    h += `<label class="hint" style="display:flex;gap:8px;align-items:flex-start;margin:6px 0 10px"><input type="checkbox" id="hmStock" ${d.tvSet ? '' : 'checked'} ${adb ? '' : 'disabled'} style="margin-top:2px">
+      <span>Desativar o launcher de fábrica${stock.length ? ' (' + esc(stock.map(homeLabel).join(', ')) + ')' : ''}. Deixa a TV mais leve e garante que não volta para ele ao tirar da tomada.${d.tvSet ? '<br><b style="color:var(--warn)">Esta é uma TV com HDMI/antena: recomendo deixar desmarcado.</b>' : ''}</span></label>
+      <button class="pri" onclick="launcherOn(true)">Ligar a tela inicial TechSolutions</button>`;
+  } else {
+    h += `<div class="tip ok">Ligada. Mesmo tirando da tomada, a TV volta nela.</div>`;
+    h += off.length ? `<div class="hint" style="margin:4px 0 8px">Launcher de fábrica: <b>desativado</b> (${esc(off.map(homeLabel).join(', '))}).</div><button onclick="launcherStock(false)">Ativar o de fábrica de novo</button> `
+                    : stock.length ? `<div class="hint" style="margin:4px 0 8px">Launcher de fábrica: ativo (${esc(stock.map(homeLabel).join(', '))}), mas não aparece. ${d.tvSet ? '' : 'Desativar deixa a TV mais leve.'}</div>${adb ? '<button onclick="launcherStock(true)">Desativar o de fábrica</button> ' : ''}` : '';
+    h += `<button class="danger" onclick="launcherOn(false)" style="margin-top:8px">Voltar ao launcher original</button>`;
+  }
+  box.innerHTML = h; el.appendChild(box);
+
+  const list = document.createElement('div'); list.className = 'sec';
+  list.innerHTML = '<h3>Apps na tela inicial</h3><div class="hint" style="margin-bottom:6px">A ordem aqui é a da TV (da esquerda para a direita). O cliente também pode mudar segurando OK num app.</div>';
+  if (!launcherApps) list.insertAdjacentHTML('beforeend', '<span class="hint">Carregando…</span>');
+  else {
+    let n = 0;
+    launcherApps.forEach((a, i) => {
+      const r = document.createElement('div'); r.className = 'lrow' + (a.hidden ? ' off' : '');
+      r.innerHTML = `<span class="n">${a.hidden ? '' : ++n}</span><b></b><button title="Mais para a esquerda">▲</button><button title="Mais para a direita">▼</button><button>${a.hidden ? 'Mostrar' : 'Esconder'}</button>`;
+      r.querySelector('b').textContent = a.label; r.querySelector('b').title = a.pkg;
+      const [up, dn, hd] = r.querySelectorAll('button');
+      up.onclick = () => launcherMove(i, -1); dn.onclick = () => launcherMove(i, 1); hd.onclick = () => launcherHide(a.pkg, !a.hidden);
+      if (a.hidden) { up.disabled = dn.disabled = true; }
+      list.appendChild(r);
+    });
+  }
+  el.appendChild(list);
+}
+
 // ===== Desempenho: o que está pesando no aparelho (pelo Modo avançado) =====
 let perfAt = 0;
 const PERF_SCRIPT = [
@@ -1211,6 +1290,7 @@ function renderAll() {
   updBulk();
 }
 function renderApps() {
+  if (appMode === 'home') return renderHome();
   if (appMode === 'perf') return renderPerf();
   if ($('appqrow')) $('appqrow').style.display = '';
   if (appMode === 'all') return renderAll();

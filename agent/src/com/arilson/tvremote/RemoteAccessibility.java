@@ -119,6 +119,7 @@ public class RemoteAccessibility extends AccessibilityService {
         try {
             if (System.currentTimeMillis() < autoAcceptUntil) scheduleScan(300);
             int t = e.getEventType();
+            if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) try { Launcher.onWindow(this, e); } catch (Throwable ignored) {}
             if (t == AccessibilityEvent.TYPE_VIEW_FOCUSED || t == AccessibilityEvent.TYPE_VIEW_SELECTED
                     || t == AccessibilityEvent.TYPE_VIEW_SCROLLED || t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
                 h.removeCallbacks(focusPush); h.postDelayed(focusPush, 140);

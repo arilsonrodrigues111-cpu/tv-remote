@@ -36,6 +36,20 @@
         <activity android:name=".MessageActivity" android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true" android:taskAffinity="" />
+        <!-- launcher TechSolutions: vem desligado; o painel liga por TV -->
+        <activity android:name=".HomeActivity" android:exported="true" android:enabled="false"
+            android:label="TechSolutions Início"
+            android:launchMode="singleTask" android:stateNotNeeded="true" android:clearTaskOnLaunch="true"
+            android:excludeFromRecents="true" android:taskAffinity="com.arilson.tvremote.home"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|smallestScreenSize|uiMode|density">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <activity android:name=".GuideActivity" android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <service android:name=".AgentService" android:exported="false" />
