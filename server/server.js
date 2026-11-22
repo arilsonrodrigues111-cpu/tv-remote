@@ -75,7 +75,8 @@ function broadcastDevices() {
 function sendJson(ws, obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
 function updateStream(id) {
   const a = agents.get(id);
-  if (a) sendJson(a.ws, { type: 'stream', on: a.watchers.size > 0 });
+  // imagem só sai da TV se algum painel estiver assistindo e sem pausa
+  if (a) sendJson(a.ws, { type: 'stream', on: [...a.watchers].some((p) => !p.paused) });
 }
 
 // ---------- HTTP ----------
@@ -229,7 +230,7 @@ wss.on('connection', (ws, req) => {
       a.lastMsg = Date.now();
       if (isBinary) {
         // Frame JPEG -> todos os painéis assistindo (com backpressure simples)
-        for (const p of a.watchers) if (p.readyState === 1 && p.bufferedAmount < 2 * 1024 * 1024) p.send(data, { binary: true });
+        for (const p of a.watchers) if (!p.paused && p.readyState === 1 && p.bufferedAmount < 2 * 1024 * 1024) p.send(data, { binary: true });
         return;
       }
       let m; try { m = JSON.parse(data); } catch { return; }
@@ -253,16 +254,20 @@ wss.on('connection', (ws, req) => {
 
   // painel
   panels.add(ws);
-  ws.watching = null;
+  ws.watching = null; ws.paused = false;
   sendJson(ws, { type: 'devices', list: deviceList() });
   ws.on('message', (data) => {
     let m; try { m = JSON.parse(data); } catch { return; }
     if (m.type === 'watch') {
       if (ws.watching && agents.get(ws.watching)) { agents.get(ws.watching).watchers.delete(ws); updateStream(ws.watching); }
-      ws.watching = m.id || null;
+      ws.watching = m.id || null; ws.paused = false;
       const a = ws.watching && agents.get(ws.watching);
       if (a) { a.watchers.add(ws); updateStream(ws.watching); sendJson(a.ws, { type: 'hello' }); }
       broadcastDevices();
+    } else if (m.type === 'pause') {
+      // pausa só a imagem: a TV continua conectada, com a permissão, e o controle funciona
+      ws.paused = !!m.on;
+      if (ws.watching) updateStream(ws.watching);
     } else if (m.type === 'setClient') {
       // nome / observação do cliente (dados do painel)
       const c = clients[m.id]; if (!c) return;

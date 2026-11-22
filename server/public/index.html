@@ -313,7 +313,8 @@
         <div class="sub" id="devsub">Escolha uma TV na lista à esquerda.</div>
       </div>
       <div class="tools-btns">
-        <button onclick="send({type:'startCapture'})" title="Pede para a TV mostrar a tela (o app aceita sozinho)">Ver tela</button>
+        <button onclick="if(paused)togglePause();else send({type:'startCapture'})" title="Pede para a TV mostrar a tela (o app aceita sozinho)">Ver tela</button>
+        <button id="pausebtn" onclick="togglePause()" title="Para de mandar a imagem da TV para cá (a TV continua conectada e com a permissão)">⏸ Pausar imagem</button>
         <button id="treebtn" onclick="toggleTree()" title="Mostra os textos e botões da tela da TV (funciona até em apps que deixam a imagem preta)">Textos da tela</button>
         <select id="treemode" onchange="setTreeMode(this.value)" title="Como mostrar os textos da tela">
           <option value="auto">Automático</option><option value="draw">Só desenho</option><option value="over">Sobre a imagem</option>
@@ -550,13 +551,14 @@ function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?role=panel&token=${encodeURIComponent(TOKEN)}`);
   ws.binaryType = 'blob';
-  ws.onopen = () => { $('login').style.display = 'none'; setSrv(true, 'Servidor conectado'); log('Conectado ao servidor', 'ok'); if (current) watch(current); };
+  ws.onopen = () => { $('login').style.display = 'none'; setSrv(true, 'Servidor conectado'); log('Conectado ao servidor', 'ok'); if (current) { const wasPaused = paused; watch(current); if (wasPaused) togglePause(true); } };
   ws.onclose = (e) => {
     if (e.code === 4001) { $('login').style.display = 'flex'; $('loginerr').textContent = 'Senha incorreta'; try { localStorage.removeItem('tvr_token'); } catch {} return; }
     setSrv(false, 'Reconectando…'); setTimeout(connect, 2000);
   };
   ws.onmessage = (ev) => {
     if (typeof ev.data !== 'string') {
+      if (paused) return;
       const u = URL.createObjectURL(ev.data);
       const img = $('screen');
       img.onload = () => { if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = u; };
@@ -589,6 +591,7 @@ function connect() {
       document.body.appendChild(a); a.click(); a.remove();
     }
     else if (m.type === 'screen') {
+      if (paused) return;
       if (m.capturing && $('screen').style.display === 'none') { $('placeholder').innerHTML = '<div class="big">⏳</div>Aguardando imagem da TV…'; }
       if (!m.capturing) {
         $('screen').style.display = 'none'; $('placeholder').style.display = '';
@@ -814,9 +817,23 @@ function send(cmd) {
   if (d && d.online === false) { toast('Esta TV está desligada ou sem internet', 'error'); return; }
   ws.send(JSON.stringify({ type: 'cmd', id: current, cmd }));
 }
+let paused = false;
+function togglePause(force) {
+  paused = typeof force === 'boolean' ? force : !paused;
+  if (ws && ws.readyState === 1 && current) ws.send(JSON.stringify({ type: 'pause', on: paused }));
+  const b = $('pausebtn'); b.textContent = paused ? '▶ Voltar a ver' : '⏸ Pausar imagem'; b.classList.toggle('accent', paused);
+  if (paused) {
+    $('screen').style.display = 'none'; $('placeholder').style.display = '';
+    $('placeholder').innerHTML = '<div class="big">⏸</div>Imagem pausada.<br><span class="hint">A TV continua conectada e com a permissão. O controle ao lado continua funcionando.</span><br><br><button class="accent" onclick="togglePause(false)">▶ Voltar a ver a tela</button>';
+  } else if (current) {
+    $('placeholder').innerHTML = '<div class="big">⏳</div>Voltando a imagem…';
+  }
+}
 function watch(id) {
   current = id; ws.send(JSON.stringify({ type: 'watch', id }));
-  apps = []; allApps = null; perf = null; appSel.clear(); renderApps();
+  if (paused) { paused = false; const b = $('pausebtn'); b.textContent = '⏸ Pausar imagem'; b.classList.remove('accent'); }
+  apps = []; allApps = null; perf = null; perfBusy = false; appSel.clear(); renderApps();
+  if (appMode === 'perf') setTimeout(() => { if (current === id) { measurePerf(); send({ type: 'allApps' }); } }, 600);
   imeWasOpen = false; imeHide(false);
   if (appMode === 'all') refreshApps();
   filePath = ''; fileRoot = ''; if ($('filelist')) $('filelist').textContent = 'Clique em Arquivos para abrir.';
@@ -1047,6 +1064,8 @@ function measurePerf() {
   if (perfBusy && Date.now() - perfAt < 30000) return;
   perfBusy = true; perfAt = Date.now(); renderApps();
   send({ type: 'shell', cmd: PERF_SCRIPT });
+  const at = perfAt, dev = current;
+  setTimeout(() => { if (perfBusy && perfAt === at && current === dev) { perfBusy = false; if (!perf) perf = { noanswer: true }; if (appMode === 'perf') renderApps(); } }, 40000);
 }
 function perfAct(cmd, msg) { send({ type: 'shell', cmd: ': tsact; ' + cmd }); toast(msg || 'Executando na TV…'); }
 function onPerfShell(m) {
@@ -1091,6 +1110,7 @@ function renderPerf() {
   const el = $('applist'); el.innerHTML = '';
   if ($('appqrow')) $('appqrow').style.display = 'none';
   if (perf && perf.noadb) { el.innerHTML = '<div class="warnbox">Para medir o que pesa no aparelho precisa do Modo avançado ativo nesta TV (aba Liberar).</div>'; return; }
+  if (perf && perf.noanswer) { el.innerHTML = '<div class="warnbox">A TV não respondeu a medição. <button onclick="perf=null;measurePerf()">Tentar de novo</button></div>'; return; }
   if (!perf) { el.innerHTML = '<span class="hint">Medindo a TV (memória, processador, temperatura)… leva uns 10 segundos.</span>'; return; }
   const r = perf, mi = r.mem;
   const total = r.ram.Total || mi.MemTotal || 0, avail = mi.MemAvailable || 0, used = Math.max(0, total - avail);
