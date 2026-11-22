@@ -921,25 +921,30 @@ function refreshApps() {
 }
 const CORE_RE = /^(android$|com\.android\.(providers\.|server\.|systemui|settings|tv\.settings|packageinstaller|permissioncontroller|externalstorage|documentsui|keychain|certinstaller|location|bluetooth|networkstack|wifi|webview|inputdevices|shell|se$|nfc|phone|mms\.service|proxyhandler|pacprocessor|captiveportallogin|vpndialogs|statementservice|storagemanager|sharedstoragebackup|backupconfirm|localtransport|wallpaperbackup|dynsystem|ext\.|modulemetadata|cellbroadcast|carrierconfig|tethering|defcontainer|mtp|media|frameworkpackagestubs|tv\.frameworkpackagestubs|bips|printspooler|managedprovisioning|emergency|smspush|stk|ims|telephony|simappdialog|companiondevicemanager|soundpicker|intentresolver|timezone|apex|inputmethod|wallpapercropper|backup|permission|resolver|htmlviewer|sdksandbox|healthconnect|rkupdateservice)|com\.google\.android\.(gms|gsf|webview|packageinstaller|permissioncontroller|ext\.|networkstack|modulemetadata|tv\.remote\.service|tvsetup|setupwraith|partnersetup|configupdater|onetimeinitializer|inputmethod|tts|overlay|apps\.tv\.launcherx|tvlauncher)|android\.)/;
 const RES_RE = /overlay|\.res(\.|$)|auto_generated|\.rro\b/i;
-const CHIP_RE = /^com\.(droidlogic|amlogic|softwinner|allwinner|rockchip|realtek|rtk|mediatek|mstar|hisilicon|hisi|aml|tcl|mitv|xiaomi|sony|lge|samsung|philips|tpv|skyworth|hisense)\b/i;
+const CHIP_RE = /^com\.(droidlogic|amlogic|softwinner|allwinner|allwinnertech|actions|rockchip|realtek|rtk|mediatek|mstar|hisilicon|hisi|aml|tcl|mitv|xiaomi|sony|lge|samsung|philips|tpv|skyworth|hisense)\b/i;
 const SUSPECT_RE = /adups|fota|otaapk|ota\.?update|\.ota\b|chensen|andoridxh|appstore|app\.?market|\.market\b|\.store$|ui\.lb\.|advert|\.ads?\b|cleaner|\.clean|boost|speedup|antivirus|virus|guard|push(service)?$/i;
 const OPTIONAL_RE = /youtube|netflix|amazon|primevideo|disney|globo|spotify|deezer|deskclock|gallery|music|browser|calendar|email|videos|play\.games|katniss|tvrecommendations|backdrop|airscreen|vlc|calculator|camera|fmradio|filemanager|soundrecorder|tvdfilemanager|xplore|aptoide|apkpure|downloader|kodi|weather|news|game/i;
+const SYS_UIDS = ['android.uid.system', 'android.uid.phone', 'android.uid.bluetooth', 'android.uid.nfc', 'android.uid.shell', 'android.uid.networkstack', 'android.media', 'android.uid.se'];
+const STD_RE = /^(android$|android\.|com\.android\.|com\.google\.android\.)/;
+const sysPower = (a) => SYS_UIDS.includes(a.uid) && !STD_RE.test(a.pkg) && !CHIP_RE.test(a.pkg);
 function appCat(a) {
   if (a.pkg === allMeta.me) return 'me';
-  if (!a.inst) return 'off';
-  if (!a.on) return 'off';
-  if (a.homeNow || a.imeNow || (a.acc && a.pkg !== allMeta.me) || a.pers || ['android.uid.system', 'android.uid.phone', 'android.uid.bluetooth', 'android.uid.nfc', 'android.uid.shell', 'android.uid.networkstack', 'android.media', 'android.uid.se'].includes(a.uid)) return 'essential';
+  if (!a.inst || !a.on) return 'off';
+  if (a.homeNow || a.imeNow || (a.acc && a.pkg !== allMeta.me)) return 'essential';
   if (!a.sys) return a.admin ? 'suspect' : 'user';
-  if (RES_RE.test(a.pkg) || CORE_RE.test(a.pkg)) return 'essential';
-  if (SUSPECT_RE.test(a.pkg)) return 'suspect';
-  if (CHIP_RE.test(a.pkg)) return a.launch && OPTIONAL_RE.test(a.pkg + ' ' + a.label) ? 'optional' : 'essential';
+  const core = RES_RE.test(a.pkg) || CORE_RE.test(a.pkg);
+  if (!core && SUSPECT_RE.test(a.pkg)) return 'suspect';
+  if (core) return 'essential';
+  // app de marca desconhecida rodando com poder de sistema (lojas/atualizadores de fábrica): principal suspeito
+  if (sysPower(a)) return 'suspect';
+  if (SYS_UIDS.includes(a.uid) || a.pers) return 'essential';
+  if (CHIP_RE.test(a.pkg)) return a.launch && OPTIONAL_RE.test(a.pkg + ' ' + a.label) ? 'optional' : 'care';
   if (OPTIONAL_RE.test(a.pkg + ' ' + a.label)) return 'optional';
-  if (/^com\.(android|google\.android)\./.test(a.pkg)) return a.launch ? 'optional' : 'care';
-  // de fábrica de marca desconhecida: bons suspeitos (propaganda, desligar o controle)
+  if (STD_RE.test(a.pkg)) return a.launch ? 'optional' : 'care';
   return a.launch || a.home ? 'suspect' : 'care';
 }
 const CATS = [
-  ['suspect', '⚠ Suspeitos de fábrica', 'Lojas, atualizadores, limpadores e apps de marca desconhecida. Costumam trazer propaganda e podem ser o que desliga o controle. Pode desativar (dá para reativar).'],
+  ['suspect', '⚠ Suspeitos de fábrica', 'Lojas, atualizadores, limpadores e apps de marca desconhecida (os marcados “poder de sistema” mexem em qualquer configuração). Costumam trazer propaganda e podem ser o que desliga o controle. Pode desativar (dá para reativar).'],
   ['user', 'Instalados depois', 'Apps que alguém instalou. Pode desinstalar.'],
   ['optional', 'Opcionais do sistema', 'Vêm de fábrica mas a TV funciona sem eles. Pode desativar.'],
   ['off', 'Desativados / removidos', 'Já tirados. Dá para ativar ou restaurar.'],
@@ -956,6 +961,7 @@ function appRow(a, cat) {
     !a.inst ? '<span class="bdg bad">removido</span>' : !a.on ? '<span class="bdg bad">desativado</span>' : '',
     a.homeNow ? '<span class="bdg warn">tela inicial</span>' : '', a.imeNow ? '<span class="bdg warn">teclado</span>' : '',
     a.acc ? '<span class="bdg warn">acessibilidade</span>' : '', a.admin ? '<span class="bdg bad">administrador</span>' : '',
+    sysPower(a) ? '<span class="bdg bad" title="Roda com permissão total do sistema sem ser do Android/Google">poder de sistema</span>' : '',
     a.upd ? '<span class="bdg">atualizado</span>' : '', a.size ? `<span class="bdg">${mb(a.size)}</span>` : ''
   ].join('');
   div.innerHTML = `<div class="l1">${selectable ? '<input type="checkbox">' : '<span style="width:15px"></span>'}<b></b></div><small></small><div class="tags">${tags}</div><div class="acts"></div>`;
