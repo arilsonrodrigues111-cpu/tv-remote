@@ -91,6 +91,24 @@ public class AgentService extends Service {
         try { s.sendJson(new JSONObject().put("type", "status").put("level", level).put("msg", msg)); } catch (Exception ignored) {}
     }
 
+    /** Chamado quando o ADB local conecta/cai: se auto-libera tudo e avisa o painel. */
+    static void adbChanged() {
+        AgentService s = instance;
+        if (s == null) return;
+        if (AdbShell.isReady()) {
+            String me = s.getPackageName();
+            AdbShell a = AdbShell.get(s);
+            a.run("appops set " + me + " PROJECT_MEDIA allow");
+            a.run("appops set " + me + " REQUEST_INSTALL_PACKAGES allow");
+            a.run("pm grant " + me + " android.permission.READ_EXTERNAL_STORAGE; pm grant " + me + " android.permission.WRITE_EXTERNAL_STORAGE");
+            a.run("dumpsys deviceidle whitelist +" + me + " >/dev/null 2>&1");
+            String svc = me + "/.RemoteAccessibility";
+            a.run("s=$(settings get secure enabled_accessibility_services); case \"$s\" in *" + svc + "*) ;; null|'') settings put secure enabled_accessibility_services " + svc + " ;; *) settings put secure enabled_accessibility_services \"$s:" + svc + "\" ;; esac; settings put secure accessibility_enabled 1");
+            status("ok", "Modo avançado ativo: controle total liberado");
+        }
+        s.sendInfo();
+    }
+
     static void sendInfoIfConnected() { if (instance != null) instance.sendInfo(); }
 
     private static int pendingCode; private static Intent pendingData;
@@ -119,6 +137,7 @@ public class AgentService extends Service {
         capHandler = new Handler(capThread.getLooper());
         readScreenSize();
         connect();
+        AdbShell.get(this).ensure();
         if (pendingData != null) { Intent d = pendingData; pendingData = null; onProjectionGranted(pendingCode, d); }
     }
 
@@ -213,6 +232,7 @@ public class AgentService extends Service {
                     .put("canInstall", Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls())
                     .put("screen", screenW + "x" + screenH)
                     .put("storage", storageInfo())
+                    .put("adb", AdbShell.isReady() ? "ativo" : AdbShell.state)
                     .put("agentVersion", BuildInfo.VERSION);
             sendJson(new JSONObject().put("type", "info").put("info", info));
         } catch (Exception ignored) {}
@@ -227,7 +247,7 @@ public class AgentService extends Service {
         String type = m.optString("type");
         RemoteAccessibility acc = RemoteAccessibility.instance;
         switch (type) {
-            case "hello": sendInfo(); sendScreenState(); forceKeyframe(); if (streamWanted && projection != null) ensureDisplay(); return;
+            case "hello": AdbShell.get(this).ensure(); sendInfo(); sendScreenState(); forceKeyframe(); if (streamWanted && projection != null) ensureDisplay(); return;
             case "stream":
                 streamWanted = m.optBoolean("on");
                 if (streamWanted) {
@@ -255,7 +275,14 @@ public class AgentService extends Service {
             case "openUrl": openUrl(m.getString("url")); return;
             case "enableInstall": enableInstall(); return;
             case "enableFiles": enableFiles(); return;
+            case "openSettings": RemoteAccessibility.startActivityAny(this, new Intent(m.getString("action"))); return;
+            case "adbConnect": AdbShell.get(this).ensure(); status("info", "Modo avançado: " + AdbShell.state); return;
+            case "shell":
+                if (!AdbShell.isReady()) { status("error", "Modo avançado não está ativo"); return; }
+                AdbShell.get(this).run(m.getString("cmd")); return;
         }
+        if ("key".equals(type) && adbKey(m.getString("key"))) return;
+        if ("text".equals(type) && acc == null && AdbShell.isReady()) { adbText(m.getString("text")); return; }
         if (acc == null) { status("error", "Acessibilidade desativada na TV: ative em Configurações > Acessibilidade > " + getString(R.string.app_name)); return; }
         readScreenSize();
         switch (type) {
@@ -265,9 +292,44 @@ public class AgentService extends Service {
                 acc.swipe((float) m.getDouble("x1") * screenW, (float) m.getDouble("y1") * screenH,
                         (float) m.getDouble("x2") * screenW, (float) m.getDouble("y2") * screenH, m.optLong("ms", 300));
                 break;
-            case "text": if (!acc.setText(m.getString("text"))) status("error", "Nenhum campo de texto focado"); break;
+            case "text":
+                if (!acc.setText(m.getString("text"))) {
+                    if (AdbShell.isReady()) adbText(m.getString("text"));
+                    else status("error", "Nenhum campo de texto focado");
+                }
+                break;
             case "key": key(acc, m.getString("key")); break;
         }
+    }
+
+    /** Teclas de verdade via ADB local (funcionam dentro de qualquer app). */
+    private boolean adbKey(String k) {
+        if (!AdbShell.isReady()) { AdbShell.get(this).ensure(); return false; }
+        int code;
+        switch (k) {
+            case "up": code = 19; break;
+            case "down": code = 20; break;
+            case "left": code = 21; break;
+            case "right": code = 22; break;
+            case "ok": code = 23; break;
+            case "back": code = 4; break;
+            case "home": code = 3; break;
+            case "recents": code = 187; break;
+            case "menu": code = 82; break;
+            case "playpause": code = 85; break;
+            default: return false;
+        }
+        return AdbShell.get(this).key(code);
+    }
+
+    private void adbText(String t) {
+        StringBuilder b = new StringBuilder();
+        for (char c : t.toCharArray()) {
+            if (c == ' ') b.append("%s");
+            else if (c == '\'') b.append("'\\''");
+            else b.append(c);
+        }
+        AdbShell.get(this).run("input text '" + b + "'");
     }
 
     private void key(RemoteAccessibility acc, String k) {

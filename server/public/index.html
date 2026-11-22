@@ -144,6 +144,14 @@
           <button onclick="send({type:'enableInstall'})">Liberar instalar apps</button>
           <button onclick="send({type:'enableFiles'})">Liberar arquivos</button>
         </div>
+        <h3 style="font-size:13px;margin:16px 0 6px">Modo avançado (controle total)</h3>
+        <div class="hint" id="adbstate" style="margin-bottom:6px">—</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="pri" onclick="send({type:'adbConnect'})">Ativar / testar</button>
+          <button onclick="send({type:'openSettings',action:'android.settings.DEVICE_INFO_SETTINGS'})">Abrir "Sobre"</button>
+          <button onclick="send({type:'openSettings',action:'android.settings.APPLICATION_DEVELOPMENT_SETTINGS'})">Abrir Opções do desenvolvedor</button>
+        </div>
+        <div class="hint" style="margin-top:6px">Faz o controle funcionar dentro de qualquer app (teclas reais) e libera a tela sem perguntar depois de reiniciar. Para ligar (você mesmo, pelo controle): em <b>Sobre</b> clique 7 vezes em <b>Build/Versão</b>; depois em <b>Opções do desenvolvedor</b> ligue <b>Depuração USB</b> e, se existir, <b>Depuração de rede / ADB pela rede</b>. Aí clique em <b>Ativar / testar</b>: a janela "Permitir depuração" é aceita sozinha.</div>
         <h3 style="font-size:13px;margin:16px 0 6px">Atualizar o app da TV</h3>
         <button class="pri" onclick="if(confirm('Baixar e instalar a versão mais nova do app nesta TV?'))send({type:'selfUpdate'})">⬇ Atualizar app nesta TV</button>
         <h3 style="font-size:13px;margin:16px 0 6px">Mensagem na tela da TV</h3>
@@ -253,8 +261,9 @@ function renderDevices() {
   if (d && $('devinfo')) $('devinfo').innerHTML = [
     '<b>' + (d.model || d.name) + '</b>', d.android && 'Android ' + d.android, d.screen && 'Tela ' + d.screen,
     d.storage && 'Armazenamento: ' + d.storage, 'App versão ' + (d.agentVersion || '?'),
-    'Instalar apps: ' + (d.canInstall ? 'liberado' : 'bloqueado'), 'Ver a tela: ' + (d.capturing ? 'autorizado' : 'não')
+    'Instalar apps: ' + (d.canInstall ? 'liberado' : 'bloqueado'), 'Modo avançado: ' + (d.adb || 'precisa app 1.4'), 'Ver a tela: ' + (d.capturing ? 'autorizado' : 'não')
   ].filter(Boolean).join('<br>');
+  if (d && $('adbstate')) $('adbstate').innerHTML = 'Situação nesta TV: <b>' + (d.adb || 'precisa atualizar o app para 1.4') + '</b>';
 }
 function renderApps() {
   const q = $('appq').value.toLowerCase(), el = $('applist');
