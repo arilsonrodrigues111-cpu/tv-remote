@@ -297,34 +297,87 @@ public class RemoteAccessibility extends AccessibilityService {
         for (int i = 0; i < n.getChildCount(); i++) collectFocusable(n.getChild(i), out, d + 1);
     }
 
-    /** Lê textos/botões de todas as janelas (funciona mesmo em apps que bloqueiam a imagem). */
+    /** App em primeiro plano (pacote) visto pela acessibilidade. */
+    String foregroundPkg() {
+        AccessibilityNodeInfo a = getRootInActiveWindow();
+        return a != null && a.getPackageName() != null ? a.getPackageName().toString() : "";
+    }
+
+    /**
+     * Lê o layout de todas as janelas (funciona mesmo em apps que bloqueiam a imagem).
+     * Cada item: [x, y, w, h, texto, flags, tipo, valor] com coordenadas em milésimos da tela.
+     * flags: 1 focado, 2 clicável/focável, 4 editável, 8 marcado, 16 selecionado, 32 texto é dica, 64 marcável, 128 desativado, 256 rolável
+     * tipo: 0 container, 1 texto, 2 botão, 3 imagem, 4 campo, 5 checkbox, 6 chave, 7 progresso, 8 lista, 9 barra deslizante, 10 rádio
+     */
     org.json.JSONArray tree(int sw, int sh) {
         org.json.JSONArray out = new org.json.JSONArray();
-        List<AccessibilityNodeInfo> roots = new ArrayList<>();
-        try { for (AccessibilityWindowInfo w : getWindows()) { AccessibilityNodeInfo r = w.getRoot(); if (r != null) roots.add(r); } } catch (Exception ignored) {}
-        if (roots.isEmpty()) { AccessibilityNodeInfo a = getRootInActiveWindow(); if (a != null) roots.add(a); }
-        for (AccessibilityNodeInfo r : roots) walkTree(r, out, sw, sh, 0);
+        List<AccessibilityWindowInfo> wins = new ArrayList<>();
+        try { wins.addAll(getWindows()); } catch (Exception ignored) {}
+        java.util.Collections.sort(wins, new java.util.Comparator<AccessibilityWindowInfo>() {
+            public int compare(AccessibilityWindowInfo a, AccessibilityWindowInfo b) { return a.getLayer() - b.getLayer(); }
+        });
+        boolean any = false;
+        for (AccessibilityWindowInfo w : wins) {
+            AccessibilityNodeInfo r = w.getRoot();
+            if (r == null) continue;
+            CharSequence pk = r.getPackageName();
+            if (pk != null && pk.toString().equals(getPackageName())) continue;
+            walkTree(r, out, sw, sh, 0); any = true;
+        }
+        if (!any) { AccessibilityNodeInfo a = getRootInActiveWindow(); if (a != null) walkTree(a, out, sw, sh, 0); }
         return out;
     }
+
+    private static int typeOf(AccessibilityNodeInfo n) {
+        String c = n.getClassName() == null ? "" : n.getClassName().toString();
+        String sc = c.substring(c.lastIndexOf('.') + 1);
+        if (n.isEditable() || sc.contains("EditText")) return 4;
+        if (sc.contains("Switch") || sc.contains("Toggle")) return 6;
+        if (sc.contains("RadioButton")) return 10;
+        if (sc.contains("CheckBox") || sc.contains("CheckedTextView")) return 5;
+        if (sc.contains("SeekBar") || sc.contains("Slider")) return 9;
+        if (sc.contains("ProgressBar") || sc.contains("RatingBar")) return 7;
+        if (sc.contains("Image")) return sc.contains("Button") ? 2 : 3;
+        if (sc.contains("Button")) return 2;
+        if (sc.contains("RecyclerView") || sc.contains("ListView") || sc.contains("GridView") || sc.contains("ScrollView") || sc.contains("Pager")) return 8;
+        if (sc.contains("TextView") || sc.equals("Text")) return 1;
+        return 0;
+    }
+
     private void walkTree(AccessibilityNodeInfo n, org.json.JSONArray out, int sw, int sh, int d) {
-        if (n == null || d > 45 || out.length() > 400) return;
-        if (n.isVisibleToUser()) {
-            CharSequence t = n.getText();
-            if (t == null || t.length() == 0) t = n.getContentDescription();
-            boolean focused = n.isFocused() || n.isAccessibilityFocused();
-            boolean click = n.isClickable() || n.isFocusable();
-            String txt = t == null ? "" : t.toString().trim();
-            if (txt.length() > 120) txt = txt.substring(0, 120) + "…";
-            if (txt.length() > 0 || focused || n.isEditable()) {
-                Rect r = new Rect(); n.getBoundsInScreen(r);
-                if (r.width() > 2 && r.height() > 2 && sw > 0 && sh > 0) {
-                    try {
-                        out.put(new org.json.JSONArray()
-                                .put(Math.round(r.left * 1000f / sw)).put(Math.round(r.top * 1000f / sh))
-                                .put(Math.round(r.width() * 1000f / sw)).put(Math.round(r.height() * 1000f / sh))
-                                .put(txt).put((focused ? 1 : 0) | (click ? 2 : 0) | (n.isEditable() ? 4 : 0) | (n.isChecked() ? 8 : 0)));
-                    } catch (Exception ignored) {}
-                }
+        if (n == null || d > 50 || out.length() > 700) return;
+        if (!n.isVisibleToUser()) return;
+        CharSequence t = n.getText();
+        boolean hint = false;
+        if ((t == null || t.length() == 0) && android.os.Build.VERSION.SDK_INT >= 26 && n.getHintText() != null) { t = n.getHintText(); hint = true; }
+        if (t == null || t.length() == 0) t = n.getContentDescription();
+        String txt = t == null ? "" : t.toString().trim();
+        if (txt.length() > 200) txt = txt.substring(0, 200) + "…";
+        int type = typeOf(n);
+        boolean focused = n.isFocused() || n.isAccessibilityFocused();
+        boolean click = n.isClickable() || n.isFocusable() || n.isLongClickable();
+        if (type == 0 && click && txt.length() > 0 && n.getChildCount() == 0) type = 2;
+        int flags = (focused ? 1 : 0) | (click ? 2 : 0) | (n.isEditable() ? 4 : 0) | (n.isChecked() ? 8 : 0)
+                | (n.isSelected() ? 16 : 0) | (hint ? 32 : 0) | (n.isCheckable() ? 64 : 0) | (n.isEnabled() ? 0 : 128)
+                | (n.isScrollable() ? 256 : 0);
+        if (n.isCheckable() && type < 5) type = 5;
+        int value = -1;
+        AccessibilityNodeInfo.RangeInfo ri = n.getRangeInfo();
+        if (ri != null && ri.getMax() > ri.getMin()) {
+            value = Math.round((ri.getCurrent() - ri.getMin()) * 1000f / (ri.getMax() - ri.getMin()));
+            if (type != 9) type = 7;
+        }
+        boolean keep = txt.length() > 0 || click || focused || type >= 2 || n.isSelected();
+        if (keep) {
+            Rect r = new Rect(); n.getBoundsInScreen(r);
+            if (!r.intersect(0, 0, sw, sh)) r.setEmpty();
+            if (r.width() > 2 && r.height() > 2 && sw > 0 && sh > 0) {
+                try {
+                    out.put(new org.json.JSONArray()
+                            .put(Math.round(r.left * 1000f / sw)).put(Math.round(r.top * 1000f / sh))
+                            .put(Math.round(r.width() * 1000f / sw)).put(Math.round(r.height() * 1000f / sh))
+                            .put(txt).put(flags).put(type).put(value));
+                } catch (Exception ignored) {}
             }
         }
         for (int i = 0; i < n.getChildCount(); i++) walkTree(n.getChild(i), out, sw, sh, d + 1);

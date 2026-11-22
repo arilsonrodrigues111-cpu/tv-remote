@@ -300,9 +300,19 @@ public class AgentService extends Service {
                 break;
             case "key": key(acc, m.getString("key")); break;
             case "tree":
-                sendJson(new JSONObject().put("type", "tree").put("nodes", acc.tree(screenW, screenH)));
+                sendJson(new JSONObject().put("type", "tree").put("nodes", acc.tree(screenW, screenH))
+                        .put("app", appLabel(acc.foregroundPkg())).put("w", screenW).put("h", screenH));
                 break;
         }
+    }
+
+    private String lastPkg = "", lastLabel = "";
+    private String appLabel(String pkg) {
+        if (pkg.equals(lastPkg)) return lastLabel;
+        String l = pkg;
+        try { l = getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)).toString(); } catch (Exception ignored) {}
+        lastPkg = pkg; lastLabel = l;
+        return l;
     }
 
     /** Teclas de verdade via ADB local (funcionam dentro de qualquer app). */
