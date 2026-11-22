@@ -223,7 +223,7 @@ function connect() {
     else if (m.type === 'status') log(`[${devName(m.device)}] ${m.msg}`, m.level);
     else if (m.type === 'apps') { apps = m.list.sort((a, b) => a.label.localeCompare(b.label)); renderApps(); }
     else if (m.type === 'progress') setProg(m.key || m.name, m.pct, `TV baixando ${m.name}`);
-    else if (m.type === 'tree') { treeNodes = m.nodes || []; treeApp = m.app || ''; treeBlack = imgIsBlack(); drawTree(); }
+    else if (m.type === 'tree') { treeNodes = m.nodes || []; treeFocus = m.focus || null; treeApp = m.app || ''; treeBlack = imgIsBlack(); drawTree(); }
     else if (m.type === 'files') { filePath = m.path; fileRoot = m.root || fileRoot; renderFiles(m.list); }
     else if (m.type === 'downloadReady') {
       log(`Arquivo pronto: ${m.name}`, 'ok');
@@ -245,7 +245,7 @@ function toggleTree() {
   if (treeOn) { send({ type: 'tree' }); treeTimer = setInterval(() => { if (current && ws && ws.readyState === 1) send({ type: 'tree' }); }, 1000); }
   drawTree();
 }
-let treeApp = '', treeBlack = false;
+let treeApp = '', treeBlack = false, treeFocus = null;
 function imgIsBlack() {
   const img = $('screen');
   if (img.style.display === 'none' || !img.naturalWidth) return true;
@@ -384,6 +384,7 @@ function drawTree() {
     }
   }
   g.globalAlpha = 1;
+  if (treeFocus) focus = [treeFocus[0] * sc, treeFocus[1] * R.h / 1000, treeFocus[2] * sc, treeFocus[3] * R.h / 1000];
   if (focus) { // destaque de foco igual às TVs: borda laranja grossa com brilho
     const [X, Y, W, H] = focus;
     g.save(); g.shadowColor = 'rgba(249,115,22,.8)'; g.shadowBlur = 14; g.strokeStyle = '#f97316'; g.lineWidth = 3.5;

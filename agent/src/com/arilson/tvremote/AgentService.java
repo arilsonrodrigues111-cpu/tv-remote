@@ -72,7 +72,7 @@ public class AgentService extends Service {
     private VirtualDisplay vdisplay;
     private ImageReader reader;
     private HandlerThread capThread;
-    private Handler capHandler;
+    private Handler capHandler, treeHandler;
     private volatile boolean streamWanted = false;
     private volatile int maxSize = 960, quality = 60, fps = 10;
     private volatile long lastFrame = 0;
@@ -135,6 +135,7 @@ public class AgentService extends Service {
         wake.acquire();
         capThread = new HandlerThread("capture"); capThread.start();
         capHandler = new Handler(capThread.getLooper());
+        HandlerThread tt = new HandlerThread("tree"); tt.start(); treeHandler = new Handler(tt.getLooper());
         readScreenSize();
         connect();
         AdbShell.get(this).ensure();
@@ -299,11 +300,33 @@ public class AgentService extends Service {
                 }
                 break;
             case "key": key(acc, m.getString("key")); break;
-            case "tree":
-                sendJson(new JSONObject().put("type", "tree").put("nodes", acc.tree(screenW, screenH))
-                        .put("app", appLabel(acc.foregroundPkg())).put("w", screenW).put("h", screenH));
-                break;
+            case "tree": treeWantedUntil = System.currentTimeMillis() + 3500; final RemoteAccessibility fa = acc; treeHandler.post(new Runnable() { public void run() { sendTree(fa); } }); break;
         }
+    }
+
+    static volatile long treeWantedUntil = 0;
+    private long lastTreeAt = 0;
+    synchronized void sendTree(RemoteAccessibility acc) {
+        if (acc == null) return;
+        lastTreeAt = System.currentTimeMillis();
+        try {
+            readScreenSize();
+            sendJson(new JSONObject().put("type", "tree").put("nodes", acc.tree(screenW, screenH))
+                    .put("app", appLabel(acc.foregroundPkg())).put("w", screenW).put("h", screenH)
+                    .put("focus", focusJson(acc.realFocus(screenW, screenH))));
+        } catch (Exception ignored) {}
+    }
+    /** Chamado pela acessibilidade quando o foco muda: manda o desenho na hora (se o painel estiver olhando). */
+    static void focusMoved() {
+        final AgentService s = instance;
+        if (s == null || System.currentTimeMillis() > treeWantedUntil) return;
+        if (System.currentTimeMillis() - s.lastTreeAt < 120) return;
+        s.treeHandler.post(new Runnable() { public void run() { s.sendTree(RemoteAccessibility.instance); } });
+    }
+
+    private static JSONArray focusJson(int[] f) {
+        if (f == null) return null;
+        JSONArray a = new JSONArray(); for (int v : f) a.put(v); return a;
     }
 
     private String lastPkg = "", lastLabel = "";

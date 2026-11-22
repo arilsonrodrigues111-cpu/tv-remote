@@ -95,7 +95,14 @@ public class RemoteAccessibility extends AccessibilityService {
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {
         if (System.currentTimeMillis() < autoAcceptUntil) scheduleScan(300);
+        int t = e.getEventType();
+        if (t == AccessibilityEvent.TYPE_VIEW_FOCUSED || t == AccessibilityEvent.TYPE_VIEW_SELECTED
+                || t == AccessibilityEvent.TYPE_VIEW_SCROLLED || t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            h.removeCallbacks(focusPush); h.postDelayed(focusPush, 140);
+        }
     }
+
+    private final Runnable focusPush = new Runnable() { public void run() { AgentService.focusMoved(); } };
 
     private boolean scanPending = false;
     private void scheduleScan(long delay) {
@@ -328,6 +335,46 @@ public class RemoteAccessibility extends AccessibilityService {
         return out;
     }
 
+    /**
+     * Onde o seletor está de verdade: pergunta ao sistema (sem cache) o foco de entrada atual.
+     * Se o foco estiver num container grande (lista), usa o filho selecionado/destacado dentro dele.
+     */
+    int[] realFocus(int sw, int sh) {
+        AccessibilityNodeInfo f = null;
+        try { f = findFocus(AccessibilityNodeInfo.FOCUS_INPUT); } catch (Exception ignored) {}
+        if (f != null) { try { f.refresh(); } catch (Exception ignored) {} }
+        if (f == null || !f.isVisibleToUser()) {
+            try { f = findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY); } catch (Exception ignored) {}
+        }
+        if (f == null) return null;
+        Rect r = new Rect(); f.getBoundsInScreen(r);
+        long area = (long) r.width() * r.height();
+        if (f.getChildCount() > 0 && area > (long) sw * sh / 6) {
+            AccessibilityNodeInfo c = findSelected(f, 0);
+            if (c != null) { Rect cr = new Rect(); c.getBoundsInScreen(cr); if (!cr.isEmpty()) r = cr; }
+        }
+        if (!r.intersect(0, 0, sw, sh) || r.width() < 2 || r.height() < 2 || sw <= 0 || sh <= 0) return null;
+        return new int[]{ Math.round(r.left * 1000f / sw), Math.round(r.top * 1000f / sh),
+                Math.round(r.width() * 1000f / sw), Math.round(r.height() * 1000f / sh) };
+    }
+    private AccessibilityNodeInfo findSelected(AccessibilityNodeInfo n, int d) {
+        if (n == null || d > 30) return null;
+        for (int i = 0; i < n.getChildCount(); i++) {
+            AccessibilityNodeInfo c = n.getChild(i);
+            if (c == null) continue;
+            try { c.refresh(); } catch (Exception ignored) {}
+            if (c.isVisibleToUser() && (c.isFocused() || c.isSelected() || c.isAccessibilityFocused())) {
+                AccessibilityNodeInfo deeper = c.getChildCount() > 0 ? findSelected(c, d + 1) : null;
+                Rect a = new Rect(); c.getBoundsInScreen(a);
+                if (deeper != null) { Rect b = new Rect(); deeper.getBoundsInScreen(b); if ((long) b.width() * b.height() * 3 >= (long) a.width() * a.height()) return deeper; }
+                return c;
+            }
+            AccessibilityNodeInfo r = findSelected(c, d + 1);
+            if (r != null) return r;
+        }
+        return null;
+    }
+
     private static int typeOf(AccessibilityNodeInfo n) {
         String c = n.getClassName() == null ? "" : n.getClassName().toString();
         String sc = c.substring(c.lastIndexOf('.') + 1);
@@ -354,7 +401,7 @@ public class RemoteAccessibility extends AccessibilityService {
         String txt = t == null ? "" : t.toString().trim();
         if (txt.length() > 200) txt = txt.substring(0, 200) + "…";
         int type = typeOf(n);
-        boolean focused = n.isFocused() || n.isAccessibilityFocused();
+        boolean focused = false; // o foco real vem de realFocus(), mandado à parte
         boolean click = n.isClickable() || n.isFocusable() || n.isLongClickable();
         if (type == 0 && click && txt.length() > 0 && n.getChildCount() == 0) type = 2;
         int flags = (focused ? 1 : 0) | (click ? 2 : 0) | (n.isEditable() ? 4 : 0) | (n.isChecked() ? 8 : 0)
