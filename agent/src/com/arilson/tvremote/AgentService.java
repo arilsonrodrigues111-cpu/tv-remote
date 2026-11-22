@@ -46,6 +46,7 @@ import java.nio.ByteBuffer;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -209,7 +210,9 @@ public class AgentService extends Service {
                     .put("sdk", Build.VERSION.SDK_INT)
                     .put("accessibility", RemoteAccessibility.enabled())
                     .put("capturing", projection != null)
+                    .put("canInstall", Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls())
                     .put("screen", screenW + "x" + screenH)
+                    .put("storage", storageInfo())
                     .put("agentVersion", BuildInfo.VERSION);
             sendJson(new JSONObject().put("type", "info").put("info", info));
         } catch (Exception ignored) {}
@@ -241,6 +244,17 @@ public class AgentService extends Service {
             case "launch": launch(m.getString("pkg")); return;
             case "uninstall": uninstall(m.getString("pkg")); return;
             case "install": install(m); return;
+            case "files": Files.list(this, m.optString("path", "")); return;
+            case "mkdir": Files.mkdir(this, m.getString("path")); return;
+            case "deleteFile": Files.delete(this, m.getString("path")); return;
+            case "installLocal": installLocal(m.getString("path"), m.optString("name", "app.apk")); return;
+            case "sendFile": Files.upload(this, http, m.getString("path"), m.optString("name", "")); return;
+            case "putFile": Files.download(this, http, m); return;
+            case "selfUpdate": selfUpdate(); return;
+            case "toast": showToast(m.getString("text")); return;
+            case "openUrl": openUrl(m.getString("url")); return;
+            case "enableInstall": enableInstall(); return;
+            case "enableFiles": enableFiles(); return;
         }
         if (acc == null) { status("error", "Acessibilidade desativada na TV: ative em Configurações > Acessibilidade > " + getString(R.string.app_name)); return; }
         readScreenSize();
@@ -350,28 +364,102 @@ public class AgentService extends Service {
                     }
                 }
                 out.close(); in.close();
-
-                PackageInstaller pi = getPackageManager().getPackageInstaller();
-                PackageInstaller.SessionParams sp = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-                sp.setSize(f.length());
-                int sid = pi.createSession(sp);
-                PackageInstaller.Session s = pi.openSession(sid);
-                OutputStream so = s.openWrite("base.apk", 0, f.length());
-                InputStream fi = new FileInputStream(f);
-                while ((n = fi.read(buf)) > 0) so.write(buf, 0, n);
-                s.fsync(so); so.close(); fi.close();
-                Intent cb = new Intent(AgentService.this, InstallReceiver.class).putExtra("apkname", name).putExtra("action", "Instalação");
-                PendingIntent p = PendingIntent.getBroadcast(AgentService.this, sid, cb, piFlags());
-                RemoteAccessibility.autoAccept(60000);
-                s.commit(p.getIntentSender());
-                s.close();
-                status("info", "Instalando " + name + "...");
+                commitApk(f, name);
             } catch (Exception e) {
                 status("error", "Instalação falhou: " + e.getMessage());
             } finally {
                 main.postDelayed(new Runnable() { public void run() { new File(getCacheDir(), "dl.apk").delete(); } }, 120000);
             }
         }}).start();
+    }
+
+    /** Instala um APK que já está num arquivo local da TV. */
+    private void installLocal(final String path, final String name) {
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) { enableInstall(); return; }
+        new Thread(new Runnable() { public void run() {
+            try {
+                File f = new File(path);
+                if (!f.isFile()) { status("error", "Arquivo não encontrado: " + path); return; }
+                status("info", "Instalando " + name + "...");
+                commitApk(f, name);
+            } catch (Exception e) { status("error", "Instalação falhou: " + e.getMessage()); }
+        }}).start();
+    }
+
+    /** Grava o APK numa sessão do PackageInstaller e confirma (auto-aceita o diálogo). */
+    private void commitApk(File f, String name) throws Exception {
+        PackageInstaller pi = getPackageManager().getPackageInstaller();
+        PackageInstaller.SessionParams sp = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        sp.setSize(f.length());
+        int sid = pi.createSession(sp);
+        PackageInstaller.Session s = pi.openSession(sid);
+        OutputStream so = s.openWrite("base.apk", 0, f.length());
+        InputStream fi = new FileInputStream(f);
+        byte[] buf = new byte[64 * 1024]; int n;
+        while ((n = fi.read(buf)) > 0) so.write(buf, 0, n);
+        s.fsync(so); so.close(); fi.close();
+        Intent cb = new Intent(this, InstallReceiver.class).putExtra("apkname", name).putExtra("action", "Instalação");
+        PendingIntent p = PendingIntent.getBroadcast(this, sid, cb, piFlags());
+        RemoteAccessibility.autoAccept(60000);
+        s.commit(p.getIntentSender());
+        s.close();
+        status("info", "Instalando " + name + "...");
+    }
+
+    static void triggerSelfUpdate() { if (instance != null) instance.selfUpdate(); }
+
+    /** Liga remotamente "instalar apps desconhecidos": abre a tela e aceita sozinho. */
+    private void enableInstall() {
+        if (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls()) { status("ok", "Instalar apps já está liberado"); sendInfo(); return; }
+        RemoteAccessibility.autoAccept(15000);
+        Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()));
+        RemoteAccessibility.startActivityAny(this, i);
+        status("info", "Liberando 'instalar apps' na TV...");
+        main.postDelayed(new Runnable() { public void run() { sendInfo(); } }, 4000);
+    }
+
+    /** Liga remotamente o acesso a arquivos. */
+    private void enableFiles() {
+        if (Build.VERSION.SDK_INT < 23) { status("ok", "Arquivos já liberado"); return; }
+        RemoteAccessibility.autoAccept(15000);
+        Intent i = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + getPackageName()));
+        RemoteAccessibility.startActivityAny(this, i);
+        status("info", "Abri as permissões do app na TV: liberando arquivos...");
+    }
+
+    /** Baixa e instala o próprio APK mais novo do servidor (botão "Atualizar app"). */
+    private void selfUpdate() {
+        try {
+            JSONObject m = new JSONObject().put("url", Prefs.httpBase(this) + "/agent.apk?token=" + enc(Prefs.token(this)))
+                    .put("name", "TechSolutions (atualização)");
+            status("info", "Baixando atualização do app...");
+            install(m);
+        } catch (Exception e) { status("error", "Atualização falhou: " + e.getMessage()); }
+    }
+
+    private void showToast(final String text) {
+        main.post(new Runnable() { public void run() {
+            try { android.widget.Toast.makeText(AgentService.this, text, android.widget.Toast.LENGTH_LONG).show(); status("ok", "Mensagem exibida na TV"); }
+            catch (Exception e) { status("error", "Não consegui exibir: " + e.getMessage()); }
+        }});
+    }
+
+    private void openUrl(String url) {
+        try {
+            if (!url.contains("://")) url = "http://" + url;
+            Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+            RemoteAccessibility.startActivityAny(this, i);
+            status("ok", "Abrindo " + url);
+        } catch (Exception e) { status("error", "Não consegui abrir o link: " + e.getMessage()); }
+    }
+
+    private String storageInfo() {
+        try {
+            android.os.StatFs st = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath());
+            long free = st.getAvailableBytes(), total = st.getTotalBytes();
+            return (free / 1073741824.0 > 1 ? String.format(Locale.US, "%.1f", free / 1073741824.0) + " GB"
+                    : (free / 1048576) + " MB") + " livres de " + String.format(Locale.US, "%.1f", total / 1073741824.0) + " GB";
+        } catch (Exception e) { return ""; }
     }
 
     // ---------------- captura de tela ----------------

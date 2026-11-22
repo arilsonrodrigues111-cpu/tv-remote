@@ -12,9 +12,11 @@ const PORT = parseInt(process.env.PORT || '8080', 10);
 const AGENT_TOKEN = process.env.AGENT_TOKEN || '';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const APK_DIR = path.join(DATA_DIR, 'apks');
+const FILES_DIR = path.join(DATA_DIR, 'files');
 const MAX_UPLOAD = parseInt(process.env.MAX_UPLOAD_MB || '500', 10) * 1024 * 1024;
 const APK_TTL_H = parseInt(process.env.APK_TTL_HOURS || '72', 10);
 fs.mkdirSync(APK_DIR, { recursive: true });
+fs.mkdirSync(FILES_DIR, { recursive: true });
 
 // Senha do painel: variável TOKEN, ou criada no primeiro acesso ao painel (salva como hash em DATA_DIR/admin.json)
 const ADMIN_FILE = path.join(DATA_DIR, 'admin.json');
@@ -86,6 +88,41 @@ const server = http.createServer((req, res) => {
     return fs.stat(f, (err, st) => {
       if (err) { res.writeHead(404); return res.end('not found'); }
       res.writeHead(200, { 'content-type': MIME['.apk'], 'content-length': st.size });
+      fs.createReadStream(f).pipe(res);
+    });
+  }
+
+  // Arquivo vindo da TV (o agente envia): guarda e avisa os painéis que assistem o aparelho.
+  if (p === '/api/fromtv' && req.method === 'POST') {
+    if (!agentOk(req, url)) { res.writeHead(401); return res.end('unauthorized'); }
+    const deviceId = (url.searchParams.get('device') || '').slice(0, 64);
+    const orig = (url.searchParams.get('name') || 'arquivo').replace(/[^\w.\-]+/g, '_').slice(0, 120);
+    const file = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}-${orig}`;
+    const dest = path.join(FILES_DIR, file);
+    const out = fs.createWriteStream(dest);
+    let size = 0, aborted = false;
+    req.on('data', (c) => { size += c.length; if (size > MAX_UPLOAD && !aborted) { aborted = true; req.destroy(); out.destroy(); fs.rm(dest, () => {}); } });
+    req.pipe(out);
+    out.on('finish', () => {
+      if (aborted) return;
+      const a = agents.get(deviceId);
+      const msg = JSON.stringify({ type: 'downloadReady', name: orig, url: `/files/${file}`, size });
+      if (a) for (const w of a.watchers) if (w.readyState === 1) w.send(msg);
+      res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
+    });
+    out.on('error', () => { if (!res.headersSent) { res.writeHead(500); res.end('erro'); } });
+    return;
+  }
+
+  // Download, pelo painel, de um arquivo que veio da TV.
+  if (p.startsWith('/files/')) {
+    if (!authOk(req, url)) { res.writeHead(401); return res.end('unauthorized'); }
+    const f = path.join(FILES_DIR, path.basename(p));
+    return fs.stat(f, (err, st) => {
+      if (err) { res.writeHead(404); return res.end('not found'); }
+      const name = path.basename(p).replace(/^\d+-[0-9a-f]+-/, '');
+      res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': st.size,
+        'content-disposition': 'attachment; filename="' + name.replace(/"/g, '') + '"' });
       fs.createReadStream(f).pipe(res);
     });
   }

@@ -91,6 +91,8 @@
       <div class="tabs">
         <button class="on" data-p="ctl">Controle</button>
         <button data-p="apps">Apps</button>
+        <button data-p="files" onclick="listFiles()">Arquivos</button>
+        <button data-p="more">Mais</button>
         <button data-p="logp">Log</button>
       </div>
       <div class="pane on" id="ctl">
@@ -121,6 +123,41 @@
           <button onclick="send({type:'apps'})">↻</button>
         </div>
         <div id="applist" class="hint">Clique em ↻ para listar.</div>
+      </div>
+      <div class="pane" id="files">
+        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+          <button onclick="filesUp()" title="Pasta acima">⬆</button>
+          <button onclick="listFiles(fileRoot)" title="Início">🏠</button>
+          <button onclick="listFiles(filePath)" title="Atualizar">↻</button>
+          <input id="newdir" placeholder="nova pasta" style="flex:1">
+          <button onclick="mkdir()">＋</button>
+        </div>
+        <div id="filepath" class="hint" style="word-break:break-all;margin-bottom:6px"></div>
+        <input type="file" id="tvfile" onchange="if(this.files[0])sendToTv(this.files[0]);this.value=''">
+        <div class="hint" style="margin:4px 0 8px">↑ envia um arquivo para a pasta atual da TV</div>
+        <div id="filelist" class="hint">Abrindo…</div>
+        <div id="fileups"></div>
+      </div>
+      <div class="pane" id="more">
+        <h3 style="font-size:13px;margin:4px 0 6px">Permissões (ligar remotamente)</h3>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button onclick="send({type:'enableInstall'})">Liberar instalar apps</button>
+          <button onclick="send({type:'enableFiles'})">Liberar arquivos</button>
+        </div>
+        <h3 style="font-size:13px;margin:16px 0 6px">Atualizar o app da TV</h3>
+        <button class="pri" onclick="if(confirm('Baixar e instalar a versão mais nova do app nesta TV?'))send({type:'selfUpdate'})">⬇ Atualizar app nesta TV</button>
+        <h3 style="font-size:13px;margin:16px 0 6px">Mensagem na tela da TV</h3>
+        <div style="display:flex;gap:6px">
+          <input id="toast" placeholder="Texto para aparecer na TV" style="flex:1">
+          <button onclick="var t=$('toast').value;if(t){send({type:'toast',text:t});$('toast').value=''}">Mostrar</button>
+        </div>
+        <h3 style="font-size:13px;margin:16px 0 6px">Abrir link / vídeo na TV</h3>
+        <div style="display:flex;gap:6px">
+          <input id="openurl" placeholder="https://..." style="flex:1">
+          <button onclick="var u=$('openurl').value;if(u){send({type:'openUrl',url:u});$('openurl').value=''}">Abrir</button>
+        </div>
+        <h3 style="font-size:13px;margin:16px 0 6px">Informações</h3>
+        <div id="devinfo" class="hint">—</div>
       </div>
       <div class="pane" id="logp"><div id="log"></div></div>
     </div>
@@ -174,6 +211,12 @@ function connect() {
     else if (m.type === 'status') log(`[${devName(m.device)}] ${m.msg}`, m.level);
     else if (m.type === 'apps') { apps = m.list.sort((a, b) => a.label.localeCompare(b.label)); renderApps(); }
     else if (m.type === 'progress') setProg(m.key || m.name, m.pct, `TV baixando ${m.name}`);
+    else if (m.type === 'files') { filePath = m.path; fileRoot = m.root || fileRoot; renderFiles(m.list); }
+    else if (m.type === 'downloadReady') {
+      log(`Arquivo pronto: ${m.name}`, 'ok');
+      const a = document.createElement('a'); a.href = m.url + '?token=' + encodeURIComponent(TOKEN); a.download = m.name;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
     else if (m.type === 'screen') {
       if (m.capturing && $('screen').style.display === 'none') { $('placeholder').textContent = 'Aguardando imagem da TV...'; }
       if (!m.capturing) { $('screen').style.display = 'none'; $('placeholder').style.display = '';
@@ -186,6 +229,7 @@ function send(cmd) { if (!current) return log('Selecione um dispositivo', 'error
 function watch(id) {
   current = id; ws.send(JSON.stringify({ type: 'watch', id }));
   $('devname').textContent = devName(id); apps = []; renderApps();
+  filePath = ''; fileRoot = ''; if ($('filelist')) $('filelist').textContent = 'Clique em Arquivos para abrir.';
   $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').textContent = 'Aguardando imagem...';
   renderDevices(); setQuality();
 }
@@ -205,6 +249,12 @@ function renderDevices() {
     el.appendChild(div);
   }
   if (current && !devices.find((d) => d.id === current)) { $('placeholder').textContent = 'Dispositivo offline.'; $('screen').style.display = 'none'; $('placeholder').style.display = ''; }
+  const d = devices.find((x) => x.id === current);
+  if (d && $('devinfo')) $('devinfo').innerHTML = [
+    '<b>' + (d.model || d.name) + '</b>', d.android && 'Android ' + d.android, d.screen && 'Tela ' + d.screen,
+    d.storage && 'Armazenamento: ' + d.storage, 'App versão ' + (d.agentVersion || '?'),
+    'Instalar apps: ' + (d.canInstall ? 'liberado' : 'bloqueado'), 'Ver a tela: ' + (d.capturing ? 'autorizado' : 'não')
+  ].filter(Boolean).join('<br>');
 }
 function renderApps() {
   const q = $('appq').value.toLowerCase(), el = $('applist');
@@ -291,6 +341,60 @@ function uploadAndInstall(file) {
 function installUrl() {
   const u = $('apkurl').value.trim(); if (!u) return;
   send({ type: 'install', url: u, name: u.split('/').pop().split('?')[0] || 'app.apk' }); $('apkurl').value = '';
+}
+
+// ---------- explorador de arquivos ----------
+let filePath = '', fileRoot = '';
+function listFiles(path) { if (!current) return log('Selecione um dispositivo', 'error'); send({ type: 'files', path: path || '' }); $('filelist').textContent = 'Abrindo…'; }
+function filesUp() { if (!filePath || filePath === fileRoot) return; const up = filePath.replace(/\/[^/]*$/, '') || fileRoot; listFiles(up); }
+function mkdir() { const n = $('newdir').value.trim(); if (!n) return; send({ type: 'mkdir', path: (filePath || fileRoot) + '/' + n }); $('newdir').value = ''; }
+function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b > 1024 ? (b / 1024).toFixed(0) + ' KB' : b + ' B'; }
+function renderFiles(list) {
+  $('filepath').textContent = '📁 ' + (filePath || '/');
+  const el = $('filelist');
+  if (!list.length) { el.innerHTML = '<span class="hint">Pasta vazia.</span>'; return; }
+  el.innerHTML = '';
+  for (const f of list) {
+    const row = document.createElement('div'); row.className = 'app';
+    const icon = f.dir ? '📁' : f.apk ? '📦' : '📄';
+    row.innerHTML = '<span><b></b><small></small></span>';
+    row.querySelector('b').textContent = icon + ' ' + f.name;
+    row.querySelector('small').textContent = f.dir ? 'pasta' : fmtSize(f.size);
+    if (f.dir) { row.style.cursor = 'pointer'; row.onclick = () => listFiles(f.path); }
+    else {
+      const dl = document.createElement('button'); dl.textContent = '⬇'; dl.title = 'Baixar para mim';
+      dl.onclick = () => send({ type: 'sendFile', path: f.path, name: f.name });
+      row.appendChild(dl);
+      if (f.apk) { const ins = document.createElement('button'); ins.textContent = '▶'; ins.title = 'Instalar na TV';
+        ins.onclick = () => send({ type: 'installLocal', path: f.path, name: f.name }); row.appendChild(ins); }
+    }
+    const del = document.createElement('button'); del.textContent = '🗑'; del.title = 'Apagar';
+    del.onclick = () => { if (confirm('Apagar ' + f.name + '?')) send({ type: 'deleteFile', path: f.path }); };
+    row.appendChild(del);
+    el.appendChild(row);
+  }
+}
+function sendToTv(file) {
+  if (!current) return log('Selecione um dispositivo', 'error');
+  const target = current, k = 'tv-' + file.name + Date.now();
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload?name=' + encodeURIComponent(file.name));
+  xhr.setRequestHeader('X-Token', TOKEN);
+  xhr.upload.onprogress = (e) => e.lengthComputable && setFileProg(k, Math.round(e.loaded / e.total * 100), `Enviando ${file.name}`);
+  xhr.onload = () => {
+    if (xhr.status !== 200) return log('Falha no upload: ' + xhr.status, 'error');
+    const r = JSON.parse(xhr.responseText);
+    setFileProg(k, 100, `Enviado ${file.name}`);
+    ws.send(JSON.stringify({ type: 'cmd', id: target, cmd: { type: 'putFile', path: r.path, name: file.name, dir: filePath } }));
+  };
+  xhr.onerror = () => log('Erro de rede no envio', 'error');
+  xhr.send(file);
+}
+function setFileProg(key, pct, label) {
+  let el = document.querySelector(`[data-fup="${CSS.escape(key)}"]`);
+  if (!el) { el = document.createElement('div'); el.dataset.fup = key; el.innerHTML = '<div class="hint"></div><div class="prog"><i></i></div>'; $('fileups').prepend(el); }
+  el.querySelector('.hint').textContent = `${label} – ${pct}%`; el.querySelector('i').style.width = pct + '%';
+  if (pct >= 100) setTimeout(() => el.remove(), 4000);
 }
 if (TOKEN) connect();
 </script>
