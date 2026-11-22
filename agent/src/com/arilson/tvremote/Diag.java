@@ -92,6 +92,7 @@ final class Diag {
         b.append("Pode religar sozinho: ").append(AccGuard.canWriteSecure(c) ? "SIM (permissão do sistema)" : AdbShell.isReady() ? "SIM (modo avançado)" : "NÃO").append('\n');
         b.append("Última vez que o Android desligou: ").append(AccGuard.lastLost == 0 ? "—" : fmt(AccGuard.lastLost)).append('\n');
         b.append("Religamentos automáticos: ").append(AccGuard.repairs).append('\n');
+        b.append("Vezes que a TV tirou o controle da lista sozinha: ").append(AccGuard.removedBySystem).append('\n');
         b.append("Eventos:\n").append(eventsText());
         b.append("enabled_accessibility_services = ").append(Settings.Secure.getString(c.getContentResolver(), "enabled_accessibility_services")).append('\n');
         b.append("\n— OUTROS\n");

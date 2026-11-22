@@ -174,6 +174,13 @@ public class AgentService extends Service {
         connect();
         AdbShell.get(this).ensure();
         main.postDelayed(accWatch, 6000);
+        // vigia a lista de acessibilidade: se a TV tirar o TechSolutions, recoloca na hora (com permissão)
+        try {
+            getContentResolver().registerContentObserver(android.provider.Settings.Secure.getUriFor(AccGuard.KEY), false,
+                    new android.database.ContentObserver(main) { @Override public void onChange(boolean self) {
+                        try { AccGuard.onSettingChanged(AgentService.this); } catch (Throwable ignored) {}
+                    }});
+        } catch (Throwable ignored) {}
         if (pendingData != null) { Intent d = pendingData; pendingData = null; onProjectionGranted(pendingCode, d); }
     }
 
@@ -278,6 +285,7 @@ public class AgentService extends Service {
                     .put("accessibility", RemoteAccessibility.enabled())
                     .put("acc", AccGuard.state(this))
                     .put("selfFix", AccGuard.canWriteSecure(this) || AdbShell.isReady())
+                    .put("accRemoved", AccGuard.removedBySystem)
                     .put("capturing", projection != null)
                     .put("canInstall", Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls())
                     .put("canFiles", canFiles(this))

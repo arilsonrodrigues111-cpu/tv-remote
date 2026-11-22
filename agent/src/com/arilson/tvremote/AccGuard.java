@@ -81,6 +81,25 @@ final class AccGuard {
     /** Estado curto para o painel: on / travado / off. */
     static String state(Context c) { return running() ? "on" : stuck(c) ? "travado" : "off"; }
 
+    static volatile int removedBySystem = 0;
+    private static volatile long lastFast = 0;
+
+    /**
+     * A lista de acessibilidade mudou. Se tiraram o TechSolutions (alguns box com sistema modificado fazem isso sozinhos
+     * segundos depois de ligar), coloca de volta na hora quando tem permissão.
+     */
+    static void onSettingChanged(final Context c) {
+        if (inSettings(c)) return;
+        if (!running() && lastLost == 0 && removedBySystem == 0 && repairs == 0) return; // nunca esteve ligado: nada a fazer
+        removedBySystem++;
+        Diag.event("a TV tirou o TechSolutions da lista de acessibilidade");
+        if (!canWriteSecure(c) && !AdbShell.isReady()) return;
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastFast < 3000) return; // evita ficar num vai-e-volta sem fim
+        lastFast = now;
+        apply(c, false, "a TV desligou o controle");
+    }
+
     static void connected() { attempts = 0; missingSince = 0; Diag.event("controle ligado"); }
     static void lost(String why) { lastLost = System.currentTimeMillis(); Diag.event("controle desligado (" + why + ")"); }
 
@@ -97,7 +116,14 @@ final class AccGuard {
         long now = SystemClock.elapsedRealtime();
         long wait = attempts == 0 ? 0 : Math.min(300000, 20000L << Math.min(attempts - 1, 4)); // 0, 20s, 40s, 80s... até 5 min
         if (!force && now - lastRepair < wait) return false;
-        lastRepair = now; attempts++; repairs++;
+        lastRepair = now; attempts++;
+        apply(c, wasIn, why);
+        return true;
+    }
+
+    private static void apply(final Context c, final boolean wasIn, String why) {
+        final boolean secure = canWriteSecure(c);
+        repairs++;
         final String others = others(c);
         final String on = others.isEmpty() ? component(c) : others + ":" + component(c);
         Diag.event("religando o controle (" + why + (secure ? ", permissão" : ", adb") + ")");
@@ -118,7 +144,6 @@ final class AccGuard {
         } else {
             AdbShell.get(c).run(shellCmd(wasIn, others, on));
         }
-        return true;
     }
 
     private static String shellCmd(boolean toggle, String others, String on) {
