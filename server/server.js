@@ -224,13 +224,16 @@ wss.on('connection', (ws, req) => {
     broadcastDevices();
     updateStream(id);
 
+    a.lastMsg = Date.now();
     ws.on('message', (data, isBinary) => {
+      a.lastMsg = Date.now();
       if (isBinary) {
         // Frame JPEG -> todos os painéis assistindo (com backpressure simples)
         for (const p of a.watchers) if (p.readyState === 1 && p.bufferedAmount < 2 * 1024 * 1024) p.send(data, { binary: true });
         return;
       }
       let m; try { m = JSON.parse(data); } catch { return; }
+      if (m.type === 'hb') { a.hb = true; return; } // "estou viva" (app 2.0+)
       if (m.type === 'info') {
         Object.assign(a.info, m.info || {});
         const c = clientFor(id); c.lastSeen = Date.now();
@@ -289,7 +292,12 @@ setInterval(() => {
     if (!ws.isAlive) { ws.terminate(); continue; }
     ws.isAlive = false; try { ws.ping(); } catch {}
   }
-}, 25000);
+}, 15000);
+// TV que manda "estou viva" (a cada 15 s) e parou: offline em até ~35 s (tirada da tomada, caiu a internet)
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, a] of agents) if (a.hb && now - a.lastMsg > 33000) { log('agent sem sinal', id); try { a.ws.terminate(); } catch {} }
+}, 5000);
 
 // limpeza de APKs antigos
 setInterval(() => {

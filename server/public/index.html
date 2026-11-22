@@ -46,6 +46,11 @@
   .clients h2 { margin:0 0 8px; font-size:15px; display:flex; align-items:center; gap:8px; }
   .clients h2 span { color:var(--mut); font-weight:500; font-size:12.5px; }
   .clients input { width:100%; }
+  .seg { display:flex; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:3px; margin-top:8px; gap:3px; }
+  .seg button { flex:1; border:0; background:none; padding:6px 4px; font-size:12.5px; color:var(--mut); border-radius:7px; }
+  .seg button.on { background:var(--card2); color:var(--fg); box-shadow:0 1px 0 rgba(255,255,255,.04) inset; }
+  .seg b { font-weight:700; margin-left:3px; }
+  .grp { font-size:10.5px; font-weight:700; letter-spacing:.12em; color:#6f7c99; text-transform:uppercase; margin:10px 4px 6px; }
   #devs { flex:1; overflow:auto; padding:4px 10px 14px; }
   .dev { display:flex; gap:11px; padding:11px; border:1px solid var(--line); border-radius:var(--r); margin-bottom:8px; cursor:pointer; background:var(--card); transition:border-color .12s, background .12s; }
   .dev:hover { border-color:#34456b; }
@@ -81,31 +86,29 @@
   #placeholder { color:var(--mut); text-align:center; font-size:15px; max-width:420px; }
   #placeholder .big { font-size:46px; margin-bottom:8px; }
 
-  /* ---------- controle remoto ---------- */
-  .remote-col { width:236px; flex-shrink:0; display:flex; align-items:flex-start; justify-content:center; padding:14px 12px; border-left:1px solid var(--line); background:var(--panel); overflow:auto; }
-  .remote { width:206px; padding:16px 14px 18px; border-radius:36px; background:linear-gradient(180deg,#232b3e 0%,#151b29 100%); border:1px solid #2e3850; box-shadow:0 14px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06); display:flex; flex-direction:column; gap:12px; align-items:center; }
-  .remote .brandr { font-size:10px; letter-spacing:.2em; color:#7d88a3; font-weight:700; }
-  .remote .brandr b { color:var(--acc); }
-  .rbtn { width:46px; height:46px; border-radius:50%; padding:0; font-size:17px; background:#2a3349; border:1px solid #39445f; display:inline-flex; align-items:center; justify-content:center; box-shadow:0 2px 0 #10141e; }
-  .rbtn:hover { background:#344061; }
-  .rbtn.sm { width:38px; height:38px; font-size:14px; }
-  .rbtn.wide { width:auto; white-space:nowrap; padding:0 12px; border-radius:20px; height:34px; font-size:12.5px; }
-  .rrow { display:flex; gap:10px; justify-content:center; }
-  .rrow.tight { gap:6px; }
-  .dpad { position:relative; width:172px; height:172px; border-radius:50%; background:radial-gradient(circle at 50% 40%, #323c55 0%, #252d42 70%); border:1px solid #3a4560; box-shadow:0 3px 0 #10141e, inset 0 2px 6px rgba(255,255,255,.05); }
-  .dpad button { position:absolute; background:none; border:0; color:#cfd6e6; font-size:20px; width:56px; height:56px; border-radius:50%; padding:0; }
-  .dpad button:hover { background:rgba(255,255,255,.07); }
-  .dpad .u { left:58px; top:2px; } .dpad .d { left:58px; bottom:2px; } .dpad .l { left:2px; top:58px; } .dpad .r { right:2px; top:58px; }
-  .dpad .ok { left:50px; top:50px; width:72px; height:72px; background:linear-gradient(180deg,#3b82f6,#2563eb); color:#fff; font-weight:800; font-size:16px; box-shadow:0 3px 0 #173e8c, 0 0 0 4px rgba(59,130,246,.15); }
-  .dpad .ok:hover { background:linear-gradient(180deg,#4b8ff7,#2f6bf0); }
-  .rocker { display:flex; flex-direction:column; align-items:center; background:#2a3349; border:1px solid #39445f; border-radius:22px; width:44px; box-shadow:0 2px 0 #10141e; }
-  .rocker button { background:none; border:0; width:44px; height:38px; padding:0; font-size:17px; border-radius:22px; }
-  .rocker button:hover { background:#344061; }
-  .rocker span { font-size:10px; color:#8b96b0; font-weight:700; letter-spacing:.08em; }
-  .rtext { width:100%; display:flex; flex-direction:column; gap:6px; }
-  .rtext input { width:100%; font-size:13px; padding:7px 9px; }
-  .pressed { animation:press .25s; }
-  @keyframes press { 0% { box-shadow:0 0 0 0 rgba(255,205,60,.8); } 100% { box-shadow:0 0 0 10px rgba(255,205,60,0); } }
+  /* ---------- controle (visual sóbrio, de painel técnico) ---------- */
+  .remote-col { width:252px; flex-shrink:0; border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:12px 14px 16px; }
+  .remote { display:flex; flex-direction:column; gap:12px; }
+  .rsec { display:flex; flex-direction:column; gap:6px; }
+  .rlabel { font-size:10.5px; font-weight:700; letter-spacing:.12em; color:#6f7c99; text-transform:uppercase; display:flex; align-items:center; gap:8px; }
+  .rlabel::after { content:''; flex:1; height:1px; background:var(--line); }
+  .kgrid { display:grid; gap:6px; }
+  .k { height:38px; padding:0; display:flex; align-items:center; justify-content:center; gap:6px; background:#141d33; border:1px solid #24304d; border-radius:8px; color:#c9d2e3; font-size:12px; font-weight:600; }
+  .k:hover { background:#1b2643; border-color:#33456e; color:#fff; }
+  .k svg { width:17px; height:17px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  .k.okk { background:#1f3b73; border-color:#2f5bb0; color:#fff; font-size:13px; letter-spacing:.06em; }
+  .k.okk:hover { background:#25488c; }
+  .dgrid { grid-template-columns:repeat(3, 1fr); }
+  .dgrid .k { height:50px; }
+  .dgrid .blank { visibility:hidden; }
+  .g3 { grid-template-columns:repeat(3, 1fr); } .g4 { grid-template-columns:repeat(4, 1fr); } .g5 { grid-template-columns:repeat(5, 1fr); } .g2 { grid-template-columns:repeat(2, 1fr); }
+  .rtext { display:flex; flex-direction:column; gap:6px; }
+  .rtext input { width:100%; font-size:13px; }
+  .live { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--mut); cursor:pointer; user-select:none; }
+  .live input { width:auto; margin:0; accent-color:var(--blue); }
+  .rtext input.liveon { border-color:var(--ok); box-shadow:0 0 0 2px rgba(34,197,94,.15); }
+  .pressed { animation:press .22s; }
+  @keyframes press { 0% { box-shadow:0 0 0 0 rgba(59,130,246,.7); border-color:var(--blue); } 100% { box-shadow:0 0 0 6px rgba(59,130,246,0); } }
 
   /* ---------- ferramentas ---------- */
   .tools { width:340px; flex-shrink:0; border-left:1px solid var(--line); display:flex; flex-direction:column; background:var(--panel); }
@@ -152,8 +155,8 @@
   @keyframes tin { from { opacity:0; transform:translateY(8px); } }
 
   .stagearea { position:relative; }
-  @media (max-width: 1350px) { .tools { position:absolute; right:236px; top:0; bottom:0; z-index:5; box-shadow:-10px 0 30px rgba(0,0,0,.45); } }
-  @media (max-width: 900px) { .clients { width:220px; } .remote-col { width:200px; } .remote { width:180px; } }
+  @media (max-width: 1350px) { .tools { position:absolute; right:252px; top:0; bottom:0; z-index:5; box-shadow:-10px 0 30px rgba(0,0,0,.45); } }
+  @media (max-width: 900px) { .clients { width:220px; } .remote-col { width:220px; } }
 </style>
 </head>
 <body>
@@ -189,6 +192,11 @@
     <div class="head">
       <h2>Clientes <span id="devcount"></span></h2>
       <input id="devq" placeholder="🔎  Buscar nº ou nome" oninput="renderDevices()">
+      <div class="seg" id="devseg">
+        <button data-f="all" class="on">Todos<b id="cAll">0</b></button>
+        <button data-f="on">Online<b id="cOn">0</b></button>
+        <button data-f="off">Offline<b id="cOff">0</b></button>
+      </div>
     </div>
     <div id="devs"><div class="hint" style="padding:10px">Nenhum cliente ainda. Instale o app na TV: <b>suporte.arilsondev.com/agent.apk</b></div></div>
   </aside>
@@ -201,8 +209,8 @@
         <div class="sub" id="devsub">Escolha uma TV na lista à esquerda.</div>
       </div>
       <div class="tools-btns">
-        <button onclick="send({type:'startCapture'})" title="Pede para a TV mostrar a tela (o app aceita sozinho)">📺 Ver tela</button>
-        <button id="treebtn" onclick="toggleTree()" title="Mostra os textos e botões da tela da TV (funciona até em apps que deixam a imagem preta)">📝 Textos da tela</button>
+        <button onclick="send({type:'startCapture'})" title="Pede para a TV mostrar a tela (o app aceita sozinho)">Ver tela</button>
+        <button id="treebtn" onclick="toggleTree()" title="Mostra os textos e botões da tela da TV (funciona até em apps que deixam a imagem preta)">Textos da tela</button>
         <select id="treemode" onchange="setTreeMode(this.value)" title="Como mostrar os textos da tela">
           <option value="auto">Automático</option><option value="draw">Só desenho</option><option value="over">Sobre a imagem</option>
         </select>
@@ -212,7 +220,7 @@
           <option value="1280,70,15">Qualidade alta</option>
           <option value="1920,80,20">Qualidade máxima</option>
         </select>
-        <button id="toolsbtn" class="on" onclick="toggleTools()" title="Mostrar/esconder ferramentas">🧰 Ferramentas</button>
+        <button id="toolsbtn" class="on" onclick="toggleTools()" title="Mostrar/esconder ferramentas">Ferramentas</button>
       </div>
     </div>
 
@@ -225,42 +233,52 @@
 
       <div class="remote-col">
         <div class="remote" id="remote">
-          <div class="brandr">TECH<b>SOLUTIONS</b></div>
-          <div class="rrow">
-            <button class="rbtn" data-k="back" title="Voltar (Esc)">⮌</button>
-            <button class="rbtn" data-k="home" title="Início (H)">⌂</button>
-            <button class="rbtn" data-k="menu" title="Menu (modo avançado)">☰</button>
-          </div>
-          <div class="dpad">
-            <button class="u" data-k="up" title="Cima (↑)">▲</button>
-            <button class="l" data-k="left" title="Esquerda (←)">◀</button>
-            <button class="ok" data-k="ok" title="OK (Enter)">OK</button>
-            <button class="r" data-k="right" title="Direita (→)">▶</button>
-            <button class="d" data-k="down" title="Baixo (↓)">▼</button>
-          </div>
-          <div class="rrow" style="gap:18px;align-items:center">
-            <div class="rocker"><button data-k="volup" title="Volume +">＋</button><span>VOL</span><button data-k="voldown" title="Volume −">−</button></div>
-            <button class="rbtn sm" data-k="mute" title="Mudo">🔇</button>
-            <div class="rocker"><button data-k="chup" title="Canal + (modo avançado)">▲</button><span>CH</span><button data-k="chdown" title="Canal − (modo avançado)">▼</button></div>
-          </div>
-          <div class="rrow tight">
-            <button class="rbtn sm" data-k="rewind" title="Voltar o vídeo">⏪</button>
-            <button class="rbtn sm" data-k="playpause" title="Play / pausa (espaço)">⏯</button>
-            <button class="rbtn sm" data-k="ff" title="Avançar o vídeo">⏩</button>
-          </div>
-          <div class="rrow tight">
-            <button class="rbtn wide" data-k="recents" title="Apps recentes">▤ Recentes</button>
-            <button class="rbtn wide" onclick="send({type:'openSettings',action:'android.settings.SETTINGS'})" title="Abrir configurações da TV">⚙ Ajustes</button>
-          </div>
-          <div class="rtext">
-            <input id="txt" placeholder="⌨ Digitar na TV…" onkeydown="if(event.key==='Enter'){sendText();event.preventDefault()}">
-            <div class="rrow tight">
-              <button class="rbtn wide" onclick="sendText()" title="Escreve o texto no campo focado da TV">Enviar</button>
-              <button class="rbtn wide" data-k="del" title="Apagar uma letra">⌫</button>
-              <button class="rbtn wide" data-k="enter" title="Enter / pesquisar do teclado">⏎</button>
+          <div class="rsec">
+            <div class="rlabel">Navegação</div>
+            <div class="kgrid g4">
+              <button class="k" data-k="back" title="Voltar (Esc)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button><button class="k" data-k="home" title="Início (H)"><svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg></button><button class="k" data-k="menu" title="Menu (M) – modo avançado"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><button class="k" data-k="recents" title="Apps recentes"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16"/></svg></button>
             </div>
           </div>
-          <div class="hint" style="text-align:center;font-size:11px">Teclado: setas, Enter = OK, Esc = voltar, H = início, espaço = play</div>
+          <div class="rsec">
+            <div class="rlabel">Direcional</div>
+            <div class="kgrid dgrid">
+              <span class="blank"></span><button class="k" data-k="up" title="Cima (↑)"><svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg></button><span class="blank"></span>
+              <button class="k" data-k="left" title="Esquerda (←)"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button><button class="k okk" data-k="ok" title="OK (Enter)">OK</button><button class="k" data-k="right" title="Direita (→)"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+              <span class="blank"></span><button class="k" data-k="down" title="Baixo (↓)"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><span class="blank"></span>
+            </div>
+          </div>
+          <div class="rsec">
+            <div class="rlabel">Volume e canal</div>
+            <div class="kgrid g5">
+              <button class="k" data-k="voldown" title="Volume − (tecla -)"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M16 12h5"/></svg></button><button class="k" data-k="mute" title="Mudo"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/></svg></button><button class="k" data-k="volup" title="Volume + (tecla +)"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M16 12h5M18.5 9.5v5"/></svg></button><button class="k" data-k="chdown" title="Canal − (modo avançado)">CH −</button><button class="k" data-k="chup" title="Canal + (modo avançado)">CH +</button>
+            </div>
+          </div>
+          <div class="rsec">
+            <div class="rlabel">Mídia</div>
+            <div class="kgrid g5">
+              <button class="k" data-k="prev" title="Anterior"><svg viewBox="0 0 24 24"><path d="M19 20 9 12l10-8z"/><path d="M5 19V5"/></svg></button><button class="k" data-k="rewind" title="Voltar o vídeo"><svg viewBox="0 0 24 24"><path d="m11 19-9-7 9-7z"/><path d="m22 19-9-7 9-7z"/></svg></button><button class="k" data-k="playpause" title="Play / pausa (espaço)"><svg viewBox="0 0 24 24"><path d="m5 4 9 8-9 8z"/><path d="M17 5v14M21 5v14"/></svg></button><button class="k" data-k="ff" title="Avançar o vídeo"><svg viewBox="0 0 24 24"><path d="m13 19 9-7-9-7z"/><path d="m2 19 9-7-9-7z"/></svg></button><button class="k" data-k="next" title="Próximo"><svg viewBox="0 0 24 24"><path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/></svg></button>
+            </div>
+          </div>
+          <div class="rsec">
+            <div class="rlabel">Teclado</div>
+            <div class="rtext">
+              <input id="txt" placeholder="Digite o texto para a TV" autocomplete="off" onkeydown="txtKey(event)">
+              <label class="live"><input type="checkbox" id="livetype" onchange="setLive(this.checked)"> Digitação direta (cada tecla vai na hora)</label>
+              <div class="kgrid g3">
+                <button class="k" onclick="sendText()" title="Escreve o texto no campo focado da TV"><svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>Enviar</button>
+                <button class="k" data-k="del" title="Apagar uma letra"><svg viewBox="0 0 24 24"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="m18 9-6 6M12 9l6 6"/></svg>Apagar</button>
+                <button class="k" data-k="enter" title="Enter / pesquisar"><svg viewBox="0 0 24 24"><path d="M9 10 4 15l5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>Enter</button>
+              </div>
+            </div>
+          </div>
+          <div class="rsec">
+            <div class="rlabel">Sistema</div>
+            <div class="kgrid g2">
+              <button class="k" onclick="send({type:'openSettings',action:'android.settings.SETTINGS'})" title="Abrir configurações da TV"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Ajustes</button>
+              <button class="k" onclick="send({type:'openSettings',action:'android.settings.WIFI_SETTINGS'})" title="Abrir Wi‑Fi da TV">Wi‑Fi</button>
+            </div>
+          </div>
+          <div class="hint" style="font-size:11px">Atalhos com o mouse fora dos campos: setas, Enter = OK, Esc = voltar, H = início, M = menu, espaço = play, + / − = volume.</div>
         </div>
       </div>
 
@@ -667,31 +685,46 @@ function ago(t) {
   if (!t) return ''; const s = (Date.now() - t) / 1000;
   return s < 90 ? 'agora há pouco' : s < 3600 ? `há ${Math.round(s / 60)} min` : s < 86400 ? `há ${Math.round(s / 3600)} h` : `há ${Math.round(s / 86400)} dias`;
 }
+let devFilter = 'all';
+try { devFilter = localStorage.getItem('tvr_devf') || 'all'; } catch {}
+document.querySelectorAll('#devseg button').forEach((b) => {
+  b.classList.toggle('on', b.dataset.f === devFilter);
+  b.onclick = () => { devFilter = b.dataset.f; try { localStorage.setItem('tvr_devf', devFilter); } catch {} document.querySelectorAll('#devseg button').forEach((x) => x.classList.toggle('on', x === b)); renderDevices(); };
+});
+function devCard(d) {
+  const div = document.createElement('div');
+  const online = d.online !== false;
+  div.className = 'dev' + (d.id === current ? ' sel' : '') + (online ? '' : ' offline');
+  div.innerHTML = `<div class="num"><small>CLIENTE</small>${pad4(d.num)}</div>
+    <div class="info"><div class="name"><span class="dot ${online ? 'on' : 'off'}"></span><span class="grow" style="overflow:hidden;text-overflow:ellipsis">${esc(d.client || 'Sem nome')}</span></div>
+    <div class="sub">${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'v' + d.agentVersion].filter(Boolean).join(' · '))}</div>
+    <div class="badges">${online ? [
+      `<span class="bdg ${d.capturing ? 'ok' : 'bad'}" title="Ver a tela">tela ${d.capturing ? '✓' : '✗'}</span>`,
+      `<span class="bdg ${d.accessibility !== false ? 'ok' : 'bad'}" title="Controle (Acessibilidade)">controle ${d.accessibility !== false ? '✓' : '✗'}</span>`,
+      d.adb === 'ativo' ? '<span class="bdg ok" title="Modo avançado">avançado ✓</span>' : ''
+    ].join('') : `<span class="bdg">offline · ${esc(ago(d.lastSeen))}</span>`}</div></div>`;
+  div.onclick = () => watch(d.id);
+  return div;
+}
 function renderDevices() {
   const el = $('devs'), q = ($('devq').value || '').toLowerCase().trim();
-  const on = devices.filter((d) => d.online !== false).length;
-  $('devcount').textContent = devices.length ? `${on} online · ${devices.length} no total` : '';
-  const list = devices.filter((d) => !q || pad4(d.num).includes(q) || String(d.num || '').includes(q) || (d.client || '').toLowerCase().includes(q) || (d.model || '').toLowerCase().includes(q));
-  if (!devices.length) { el.innerHTML = '<div class="hint" style="padding:10px">Nenhum cliente ainda. Instale o app na TV: <b>suporte.arilsondev.com/agent.apk</b></div>'; }
-  else {
-    el.innerHTML = '';
-    for (const d of list) {
-      const div = document.createElement('div');
-      const online = d.online !== false;
-      div.className = 'dev' + (d.id === current ? ' sel' : '') + (online ? '' : ' offline');
-      div.innerHTML = `<div class="num"><small>CLIENTE</small>${pad4(d.num)}</div>
-        <div class="info"><div class="name"><span class="dot ${online ? 'on' : 'off'}"></span><span class="grow" style="overflow:hidden;text-overflow:ellipsis">${esc(d.client || 'Sem nome')}</span></div>
-        <div class="sub">${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'v' + d.agentVersion].filter(Boolean).join(' · '))}</div>
-        <div class="badges">${online ? [
-          `<span class="bdg ${d.capturing ? 'ok' : 'bad'}" title="Ver a tela">📺 ${d.capturing ? 'tela' : 'sem tela'}</span>`,
-          `<span class="bdg ${d.accessibility !== false ? 'ok' : 'bad'}" title="Controle (Acessibilidade)">🎮 ${d.accessibility !== false ? 'controle' : 'sem controle'}</span>`,
-          d.adb === 'ativo' ? '<span class="bdg ok" title="Modo avançado">⚡ avançado</span>' : ''
-        ].join('') : `<span class="bdg">offline · ${esc(ago(d.lastSeen))}</span>`}</div></div>`;
-      div.onclick = () => watch(d.id);
-      el.appendChild(div);
-    }
-    if (!list.length) el.innerHTML = '<div class="hint" style="padding:10px">Nenhum cliente encontrado.</div>';
-  }
+  const isOn = (d) => d.online !== false;
+  const nOn = devices.filter(isOn).length;
+  $('cAll').textContent = devices.length; $('cOn').textContent = nOn; $('cOff').textContent = devices.length - nOn;
+  $('devcount').textContent = '';
+  const match = (d) => !q || pad4(d.num).includes(q) || String(d.num || '').includes(q) || (d.client || '').toLowerCase().includes(q) || (d.model || '').toLowerCase().includes(q);
+  const list = devices.filter(match);
+  el.innerHTML = '';
+  if (!devices.length) { el.innerHTML = '<div class="hint" style="padding:10px">Nenhum cliente ainda. Instale o app na TV: <b>suporte.arilsondev.com/agent.apk</b></div>'; renderHead(); return; }
+  const on = list.filter(isOn), off = list.filter((d) => !isOn(d));
+  const group = (title, arr) => {
+    if (!arr.length) return;
+    if (devFilter === 'all') { const h = document.createElement('div'); h.className = 'grp'; h.textContent = `${title} (${arr.length})`; el.appendChild(h); }
+    for (const d of arr) el.appendChild(devCard(d));
+  };
+  if (devFilter !== 'off') group('Online', on);
+  if (devFilter !== 'on') group('Offline', off);
+  if (!el.children.length) el.innerHTML = `<div class="hint" style="padding:10px">${q ? 'Nenhum cliente encontrado.' : devFilter === 'on' ? 'Nenhuma TV online agora.' : 'Nenhuma TV offline.'}</div>`;
   renderHead();
 }
 function permRow(ok, title, desc, btn, onclick) {
@@ -759,6 +792,15 @@ function renderApps() {
 }
 function key(k) { send({ type: 'key', key: k }); if (treeOn) setTimeout(() => send({ type: 'tree' }), 350); flash(k); }
 function flash(k) { const b = document.querySelector(`#remote [data-k="${k}"]`); if (b) { b.classList.remove('pressed'); void b.offsetWidth; b.classList.add('pressed'); } }
+let liveType = false;
+function setLive(on) { liveType = on; $('txt').classList.toggle('liveon', on); $('txt').placeholder = on ? 'Digitação direta: o que você digitar vai para a TV' : 'Digite o texto para a TV'; $('txt').focus(); }
+function txtKey(e) {
+  if (!liveType) { if (e.key === 'Enter') { sendText(); e.preventDefault(); } return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === 'Backspace') { key('del'); e.preventDefault(); }
+  else if (e.key === 'Enter') { key('enter'); e.preventDefault(); }
+  else if (e.key.length === 1) { send({ type: 'text', text: e.key }); e.preventDefault(); }
+}
 function sendText() { const t = $('txt').value; if (t) { send({ type: 'text', text: t }); $('txt').value = ''; } }
 function setQuality() { if (!current) return; const [max, q, fps] = $('qual').value.split(',').map(Number); send({ type: 'quality', max, q, fps }); }
 function log(msg, level = '') {
@@ -898,6 +940,7 @@ function setFileProg(key, pct, label) {
 }
 // telas menores: ferramentas começam fechadas (abrem por cima, sem esconder o controle)
 if (window.innerWidth < 1350) { $('tools').classList.add('hidden'); $('toolsbtn').classList.remove('on'); }
+setInterval(() => devices.length && renderDevices(), 30000); // atualiza o "offline há X min"
 // abre direto no último cliente usado
 try { const last = localStorage.getItem('tvr_last'); if (last) current = last; } catch {}
 if (TOKEN) connect();

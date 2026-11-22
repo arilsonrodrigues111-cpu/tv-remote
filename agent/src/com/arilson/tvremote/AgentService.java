@@ -196,11 +196,18 @@ public class AgentService extends Service {
     }
     private static String enc(String s) { try { return URLEncoder.encode(s, "UTF-8"); } catch (Exception e) { return s; } }
 
+    /** "Estou viva" a cada 15 s: o servidor marca a TV como offline logo que ela some (tirada da tomada, sem internet). */
+    private final Runnable heartbeat = new Runnable() { public void run() {
+        if (connected && ws != null) ws.send("{\"type\":\"hb\"}");
+        main.postDelayed(this, 15000);
+    }};
+
     private class Listener extends WebSocketListener {
         @Override public void onOpen(WebSocket w, Response r) {
             if (w != ws) return;
             connected = true; retry = 0; connState = "conectado";
             sendInfo();
+            main.removeCallbacks(heartbeat); main.postDelayed(heartbeat, 15000);
         }
         @Override public void onMessage(WebSocket w, final String text) {
             main.post(new Runnable() { public void run() {
