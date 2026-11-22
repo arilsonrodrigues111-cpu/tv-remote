@@ -108,6 +108,17 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  // Link curto para baixar o app na TV (sem extensão: a Cloudflare não guarda em cache)
+  if (p === '/app' || p === '/tv' || p === '/baixar') {
+    const f = path.join(__dirname, 'public', 'agent.apk');
+    return fs.stat(f, (err, st) => {
+      if (err) { res.writeHead(404); return res.end('not found'); }
+      res.writeHead(200, { 'content-type': MIME['.apk'], 'content-length': st.size, 'cache-control': 'no-store',
+        'content-disposition': 'attachment; filename="TechSolutions.apk"' });
+      fs.createReadStream(f).pipe(res);
+    });
+  }
+
   if (p === '/api/devices') {
     if (!authOk(req, url)) { res.writeHead(401); return res.end('unauthorized'); }
     res.writeHead(200, { 'content-type': 'application/json' });
