@@ -73,6 +73,7 @@
   .bdg.warn { color:#fcd34d; border-color:#5b4a1d; background:#2a2210; }
   /* limpeza de apps */
   .appseg { margin:0 0 10px; }
+  .appseg button { white-space:nowrap; padding:6px 2px; font-size:12px; }
   .capp { padding:8px 2px 9px; border-bottom:1px solid #1c2640; }
   .capp .l1 { display:flex; align-items:center; gap:7px; }
   .capp .l1 b { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
@@ -91,6 +92,25 @@
   #bulkbar { display:none; position:sticky; top:0; z-index:2; background:var(--card2); border:1px solid var(--line); border-radius:10px; padding:7px 9px; margin-bottom:8px; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px; }
   #bulkbar.on { display:flex; }
   #bulkbar button { padding:3px 9px; font-size:11.5px; }
+  .pbar { height:9px; background:#1c2742; border-radius:5px; overflow:hidden; margin:6px 0 4px; }
+  .pbar i { display:block; height:100%; background:var(--blue); border-radius:5px; }
+  .pbar i.ok { background:var(--ok); } .pbar i.warn { background:var(--warn); } .pbar i.bad { background:var(--bad); }
+  .pstat { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  .pstat div { background:#101a30; border:1px solid var(--line); border-radius:9px; padding:7px 9px; }
+  .pstat small { display:block; color:var(--mut); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; }
+  .pstat b { font-size:15px; }
+  .prow { padding:7px 0; border-bottom:1px solid #1c2640; }
+  .prow .t { display:flex; align-items:baseline; gap:6px; }
+  .prow .t b { flex:1; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .prow .t span { font-size:12px; color:var(--fg); font-variant-numeric:tabular-nums; }
+  .prow small { color:var(--mut); font-size:10.5px; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .prow .pbar { height:5px; margin:4px 0 0; }
+  .prow .acts { display:flex; gap:5px; margin-top:5px; flex-wrap:wrap; }
+  .prow .acts button, .tip button { padding:3px 9px; font-size:11.5px; }
+  .tip { border-left:3px solid var(--warn); background:#141c30; border-radius:0 9px 9px 0; padding:8px 10px; margin:0 0 8px; font-size:12.5px; line-height:1.45; }
+  .tip.ok { border-left-color:var(--ok); }
+  .tip.bad { border-left-color:var(--bad); }
+  .tip .acts { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
   .warnbox { background:#2a2210; border:1px solid #5b4a1d; color:#fcd34d; border-radius:10px; padding:8px 10px; font-size:12px; margin-bottom:8px; }
   /* teclado da TV aberto */
   #imebar { display:none; position:absolute; left:50%; bottom:18px; transform:translateX(-50%); width:min(560px, calc(100% - 28px)); background:rgba(12,20,40,.97); border:1px solid var(--ok); border-radius:14px; padding:12px 14px; box-shadow:0 12px 40px rgba(0,0,0,.55); z-index:6; }
@@ -426,9 +446,10 @@
         <div class="pane" id="apps">
           <div class="seg appseg" id="appseg">
             <button data-m="tv" class="on">Apps da TV</button>
-            <button data-m="all">🧹 Limpeza (todos)</button>
+            <button data-m="all">🧹 Limpeza</button>
+            <button data-m="perf">⚡ Desempenho</button>
           </div>
-          <div class="row" style="margin-bottom:8px">
+          <div class="row" id="appqrow" style="margin-bottom:8px">
             <input id="appq" class="grow" placeholder="🔎 Filtrar apps" oninput="renderApps()">
             <button onclick="refreshApps()" title="Atualizar lista">↻</button>
           </div>
@@ -553,8 +574,9 @@ function connect() {
       drawTree();
     }
     else if (m.type === 'appIcon') { if (m.icon) { const im = new Image(); im.onload = () => { appIcons[m.pkg] = im; drawTree(); }; im.src = 'data:image/png;base64,' + m.icon; } }
-    else if (m.type === 'allApps') { allApps = m.list || []; allMeta = { me: m.me, adb: m.adb }; if (appMode === 'all') renderApps(); }
+    else if (m.type === 'allApps') { allApps = m.list || []; allMeta = { me: m.me, adb: m.adb }; if (appMode === 'all' || appMode === 'perf') renderApps(); }
     else if (m.type === 'ime') onIme(m);
+    else if (m.type === 'shellOut' && /^: ts(perf|act);/.test(m.cmd || '')) onPerfShell(m);
     else if (m.type === 'diag' || m.type === 'shellOut') {
       const o = $('diagout'); o.style.display = 'block';
       o.textContent = m.type === 'diag' ? m.text : `$ ${m.cmd}\n${m.out || '(sem saída)'}`;
@@ -794,7 +816,7 @@ function send(cmd) {
 }
 function watch(id) {
   current = id; ws.send(JSON.stringify({ type: 'watch', id }));
-  apps = []; allApps = null; appSel.clear(); renderApps();
+  apps = []; allApps = null; perf = null; appSel.clear(); renderApps();
   imeWasOpen = false; imeHide(false);
   if (appMode === 'all') refreshApps();
   filePath = ''; fileRoot = ''; if ($('filelist')) $('filelist').textContent = 'Clique em Arquivos para abrir.';
@@ -908,14 +930,16 @@ function saveClient(e) {
 $('clientModal').addEventListener('click', (e) => { if (e.target.id === 'clientModal') closeModal(); });
 
 // ===== Limpeza: todos os apps, separados pelo que dá para tirar =====
-let appMode = 'tv', allApps = null, allMeta = {}, showEssential = false;
+let appMode = 'tv', allApps = null, allMeta = {}, showEssential = false, perf = null, perfBusy = false;
 const appSel = new Set();
 document.querySelectorAll('#appseg button').forEach((b) => b.onclick = () => {
   appMode = b.dataset.m; document.querySelectorAll('#appseg button').forEach((x) => x.classList.toggle('on', x === b));
   if (appMode === 'all' && !allApps) refreshApps(); else if (appMode === 'tv' && !apps.length) send({ type: 'apps' });
+  else if (appMode === 'perf') { if (!perf) measurePerf(); if (!allApps) send({ type: 'allApps' }); }
   renderApps();
 });
 function refreshApps() {
+  if (appMode === 'perf') return measurePerf();
   if (appMode === 'all') { allApps = null; $('applist').innerHTML = '<span class="hint">Lendo todos os apps da TV (inclusive os de fábrica)…</span>'; send({ type: 'allApps' }); }
   else send({ type: 'apps' });
 }
@@ -1003,6 +1027,144 @@ function bulk(action) {
   appSel.clear(); updBulk();
 }
 function updBulk() { const n = appSel.size; $('bulkbar').classList.toggle('on', n > 0 && appMode === 'all'); $('bulkn').textContent = n + ' selecionado(s):'; }
+// ===== Desempenho: o que está pesando no aparelho (pelo Modo avançado) =====
+let perfAt = 0;
+const PERF_SCRIPT = [
+  ": tsperf;",
+  "echo '##PROPS'; getprop ro.product.model; getprop ro.hardware; getprop ro.board.platform; getprop ro.build.version.release; getprop ro.build.version.sdk; nproc; cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null || echo 0;",
+  "echo '##TEMP'; for z in /sys/class/thermal/thermal_zone*; do echo \"$(cat $z/type 2>/dev/null) $(cat $z/temp 2>/dev/null)\"; done | head -4;",
+  "echo '##MEMINFO'; grep -E 'MemTotal|MemAvailable|SwapTotal|SwapFree' /proc/meminfo;",
+  "echo '##ANIM'; for k in window_animation_scale transition_animation_scale animator_duration_scale; do echo \"$k=$(settings get global $k)\"; done;",
+  "echo '##HOME'; cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null | tail -1;",
+  "echo '##CPU1'; head -1 /proc/stat; sleep 2; echo '##CPU2'; head -1 /proc/stat;",
+  "echo '##PSS'; dumpsys meminfo > /data/local/tmp/ts_mi.txt 2>&1; awk '/Total (PSS|RSS) by process/{f=1;next} f&&/^ *$/{exit} f' /data/local/tmp/ts_mi.txt | head -30; echo '##RAM'; grep -E 'Total RAM|Free RAM|Used RAM|Lost RAM' /data/local/tmp/ts_mi.txt; rm -f /data/local/tmp/ts_mi.txt;",
+  "echo '##TOP'; top -b -n 2 -d 1 -m 10 -s 3 -o PID,USER,%CPU,RES,NAME 2>/dev/null | tail -10;",
+  "echo '##END'"
+].join(' ');
+function measurePerf() {
+  const d = devices.find((x) => x.id === current);
+  if (!d || d.adb !== 'ativo') { perf = { noadb: true }; renderApps(); return; }
+  if (perfBusy && Date.now() - perfAt < 30000) return;
+  perfBusy = true; perfAt = Date.now(); renderApps();
+  send({ type: 'shell', cmd: PERF_SCRIPT });
+}
+function perfAct(cmd, msg) { send({ type: 'shell', cmd: ': tsact; ' + cmd }); toast(msg || 'Executando na TV…'); }
+function onPerfShell(m) {
+  if (m.cmd.startsWith(': tsact;')) { toast('Feito na TV ✓', 'ok'); setTimeout(measurePerf, 1500); return; }
+  perfBusy = false; perf = parsePerf(m.out || ''); if (appMode === 'perf') renderApps();
+}
+const SDK_VER = { 21: '5.0', 22: '5.1', 23: '6', 24: '7', 25: '7.1', 26: '8', 27: '8.1', 28: '9', 29: '10', 30: '11', 31: '12', 32: '12L', 33: '13', 34: '14', 35: '15', 36: '16' };
+function chipName(hw, plat) {
+  const h = (hw + ' ' + plat).toLowerCase();
+  const map = [[/sun50iw9/, 'Allwinner H313/H616'], [/sun50iw10/, 'Allwinner A133'], [/sun50iw6/, 'Allwinner H6'], [/sun8iw7|h3/, 'Allwinner H3'], [/rk3228|rk322x/, 'Rockchip RK3228'], [/rk3318|rk3328/, 'Rockchip RK3318/3328'], [/rk3566/, 'Rockchip RK3566'], [/rk3528/, 'Rockchip RK3528'], [/gxl|s905w|s905x\b/, 'Amlogic S905W/X'], [/g12a|s905x2/, 'Amlogic S905X2'], [/sm1|s905x3/, 'Amlogic S905X3'], [/sc2|s905x4/, 'Amlogic S905X4'], [/mt\d/, 'MediaTek']];
+  for (const [re, n] of map) if (re.test(h)) return n;
+  return hw || plat || '?';
+}
+function parsePerf(out) {
+  const sec = {}; let cur = null;
+  for (const line of out.split('\n')) { const mm = line.match(/^##(\w+)/); if (mm) { cur = mm[1]; sec[cur] = []; continue; } if (cur) sec[cur].push(line); }
+  const P = sec.PROPS || [];
+  const r = { model: P[0] || '', hw: P[1] || '', plat: P[2] || '', release: P[3] || '', sdk: parseInt(P[4]) || 0, cores: parseInt(P[5]) || 0, maxf: parseInt(P[6]) || 0, ok: !!sec.END };
+  r.chip = chipName(r.hw, r.plat);
+  r.temps = (sec.TEMP || []).map((l) => { const [t, v] = l.trim().split(/\s+/); let n = parseFloat(v); if (n > 1000) n /= 1000; return { t, v: n }; }).filter((x) => x.v > 0 && x.v < 150);
+  const mi = {}; for (const l of sec.MEMINFO || []) { const mm = l.match(/(\w+):\s+(\d+)/); if (mm) mi[mm[1]] = +mm[2]; }
+  r.mem = mi;
+  r.anim = {}; for (const l of sec.ANIM || []) { const [k, v] = l.split('='); r.anim[k] = v; }
+  r.home = ((sec.HOME || []).join('').trim().split('/')[0]) || '';
+  const cpu = (l) => { const n = (l || '').trim().split(/\s+/).slice(1).map(Number); const idle = (n[3] || 0) + (n[4] || 0); const tot = n.reduce((a, b) => a + b, 0); return { idle, tot }; };
+  const c1 = cpu((sec.CPU1 || [])[0]), c2 = cpu((sec.CPU2 || [])[0]);
+  r.cpuNow = c2.tot > c1.tot ? Math.round(100 * (1 - (c2.idle - c1.idle) / (c2.tot - c1.tot))) : null;
+  r.procs = [];
+  for (const l of sec.PSS || []) { const mm = l.match(/([\d,]+)K: (\S+) \(pid (\d+)( \/ activities)?/); if (mm) r.procs.push({ kb: +mm[1].replace(/,/g, ''), name: mm[2], pid: +mm[3], act: !!mm[4] }); }
+  r.ram = {}; for (const l of sec.RAM || []) { const mm = l.match(/(Total|Free|Used|Lost) RAM:\s+([\d,]+)K/); if (mm) r.ram[mm[1]] = +mm[2].replace(/,/g, ''); }
+  r.top = [];
+  for (const l of sec.TOP || []) { const mm = l.trim().match(/^(\d+)\s+(\S+)\s+([\d.]+)\s+(\S+)\s+(.+)$/); if (mm && mm[5] !== 'top' && mm[5] !== 'tail' && mm[5] !== 'sh') r.top.push({ pid: +mm[1], user: mm[2], cpu: +mm[3], res: mm[4], name: mm[5] }); }
+  return r;
+}
+const fmtMB = (kb) => kb >= 1048576 ? (kb / 1048576).toFixed(1).replace('.', ',') + ' GB' : Math.round(kb / 1024) + ' MB';
+function pkgInfo(name) {
+  const pkg = name.split(':')[0];
+  const a = (allApps || []).find((x) => x.pkg === pkg);
+  return { pkg, a, label: a ? a.label : pkg, cat: a ? appCat(a) : (/\./.test(pkg) ? '' : 'native') };
+}
+function renderPerf() {
+  const el = $('applist'); el.innerHTML = '';
+  if ($('appqrow')) $('appqrow').style.display = 'none';
+  if (perf && perf.noadb) { el.innerHTML = '<div class="warnbox">Para medir o que pesa no aparelho precisa do Modo avançado ativo nesta TV (aba Liberar).</div>'; return; }
+  if (!perf) { el.innerHTML = '<span class="hint">Medindo a TV (memória, processador, temperatura)… leva uns 10 segundos.</span>'; return; }
+  const r = perf, mi = r.mem;
+  const total = r.ram.Total || mi.MemTotal || 0, avail = mi.MemAvailable || 0, used = Math.max(0, total - avail);
+  const pct = total ? Math.round(100 * used / total) : 0;
+  const hot = r.temps.length ? Math.max(...r.temps.map((t) => t.v)) : null;
+  const realVer = SDK_VER[r.sdk] || ('SDK ' + r.sdk);
+  const fakeVer = r.release && SDK_VER[r.sdk] && parseFloat(r.release) !== parseFloat(SDK_VER[r.sdk]);
+  const lostPct = total && r.ram.Lost ? r.ram.Lost / total : 0;
+  const head = document.createElement('div'); head.className = 'sec';
+  head.innerHTML = `<h3>⚡ Situação agora <button style="margin-left:auto;padding:3px 9px;font-size:11.5px" onclick="measurePerf()">Medir de novo</button></h3>
+    <div class="hint">${esc(r.model)} · ${esc(r.chip)} · ${r.cores || '?'} núcleos${r.maxf ? ' até ' + (r.maxf / 1e6).toFixed(2).replace('.', ',') + ' GHz' : ''} · Android ${esc(realVer)}${fakeVer ? ' (o sistema diz ' + esc(r.release) + ')' : ''}</div>
+    <div style="margin-top:8px;font-size:12.5px">Memória em uso: <b>${fmtMB(used)}</b> de ${fmtMB(total)} (${pct}%)</div>
+    <div class="pbar"><i class="${pct >= 85 ? 'bad' : pct >= 70 ? 'warn' : 'ok'}" style="width:${pct}%"></i></div>
+    <div class="pstat">
+      <div><small>Memória livre</small><b>${fmtMB(avail)}</b></div>
+      <div><small>Processador agora</small><b>${r.cpuNow == null ? '—' : r.cpuNow + '%'}</b></div>
+      <div><small>Temperatura</small><b style="color:${hot >= 75 ? 'var(--bad)' : hot >= 65 ? 'var(--warn)' : 'inherit'}">${hot == null ? '—' : Math.round(hot) + ' °C'}</b></div>
+      <div><small>Animações</small><b>${esc(r.anim.window_animation_scale === 'null' ? '1' : (r.anim.window_animation_scale || '?'))}x</b></div>
+    </div>`;
+  el.appendChild(head);
+  if (perfBusy) el.insertAdjacentHTML('beforeend', '<div class="hint" style="margin-bottom:8px">Atualizando…</div>');
+
+  // ---- recomendações ----
+  const tips = [];
+  const homeP = r.procs.find((p) => p.name === r.home);
+  const homeInfo = pkgInfo(r.home || '');
+  if (r.home && homeP && homeP.kb > 50 * 1024) tips.push(['bad', `A tela inicial (launcher “${esc(homeInfo.label)}”) é ${r.procs[0] && r.procs[0].name === r.home ? 'o que mais pesa' : 'um dos que mais pesam'}: <b>${fmtMB(homeP.kb)}</b>. ${/google\.android\.(tvlauncher|apps\.tv\.launcherx)/.test(r.home) ? 'O launcher do Google TV carrega canais e prévias o tempo todo e é pesado para box fraco. ' : ''}Trocar por um launcher leve (ex.: <b>FLauncher</b>, gratuito na Play Store) costuma deixar o box bem mais rápido.`, '']);
+  const recs = (allApps || []).find((a) => a.pkg === 'com.google.android.tvrecommendations' && a.on && a.inst);
+  if (recs) tips.push(['', 'Recomendações do Google TV (as fileiras de sugestões da tela inicial) ficam rodando por trás. Dá para desligar sem perder nada importante.', `<button onclick="pkgAct(allApps.find(a=>a.pkg==='com.google.android.tvrecommendations'),'disable')">Desligar recomendações</button>`]);
+  const an = r.anim.window_animation_scale;
+  if (an !== '0' && an !== '0.0' && an !== '0.5') tips.push(['', 'As animações estão na velocidade normal. Em box fraco, deixar em 0,5x faz as telas abrirem mais rápido (desligar deixa ainda mais seco).', `<button onclick="perfAct('for k in window_animation_scale transition_animation_scale animator_duration_scale; do settings put global $k 0.5; done','Animações em 0,5x')">Animações 0,5x</button><button onclick="perfAct('for k in window_animation_scale transition_animation_scale animator_duration_scale; do settings put global $k 0; done','Animações desligadas')">Desligar</button>`]);
+  else tips.push(['ok', `Animações já estão em ${an}x.`, `<button onclick="perfAct('for k in window_animation_scale transition_animation_scale animator_duration_scale; do settings put global $k 1; done','Animações no normal')">Voltar ao normal</button>`]);
+  if (total && avail / total < 0.3) tips.push(['bad', `Pouca memória livre (${fmtMB(avail)}). Limpar fecha os apps que ficaram abertos por trás.`, `<button onclick="perfAct('am kill-all','Limpando a memória…')">Limpar memória</button>`]);
+  else tips.push(['ok', `Memória livre ok (${fmtMB(avail)}). Se travar depois de usar muito, limpe:`, `<button onclick="perfAct('am kill-all','Limpando a memória…')">Limpar memória</button>`]);
+  const hog = r.top.find((t) => t.cpu >= 50 && /\./.test(t.name) && t.name !== 'system_server' && pkgInfo(t.name).pkg !== allMeta.me);
+  if (hog) { const i = pkgInfo(hog.name), l = i.label.replace(/['"\\<>&]/g, ''), cores = Math.max(1, Math.round(hog.cpu / 100));
+    tips.unshift(['bad', `<b>${esc(i.label)}</b> está puxando <b>${Math.round(hog.cpu)}%</b> do processador agora (${hog.cpu >= 100 ? 'quase ' + cores + ' de ' + (r.cores || 4) + ' núcleos' : 'boa parte de um núcleo'})${i.pkg === 'com.android.vending' ? '. A Play Store faz isso quando atualiza ou verifica apps por trás; enquanto isso o box fica lento. Desligar a atualização automática na Play Store (Configurações › Atualizar apps automaticamente › Não) resolve de vez' : ''}.`, i.a ? `<button onclick="perfAct('am force-stop ${i.pkg}','Parando ${l}')">Parar ${l} agora</button>` : '']); }
+  if (hot != null && hot >= 65) tips.push([hot >= 75 ? 'bad' : '', `Está quente: <b>${Math.round(hot)} °C</b>${r.cpuNow != null && r.cpuNow < 30 ? ' mesmo quase parado' : ''}. Quente demais o chip reduz a velocidade sozinho e o box trava. Deixe em lugar ventilado, fora de cima do receptor/TV e longe de rack fechado.`, '']);
+  if (lostPct > 0.3) tips.push(['', `O sistema diz ter ${fmtMB(total)} de memória, mas ${fmtMB(r.ram.Lost)} não aparecem em lugar nenhum (reservados para vídeo ou memória informada a mais pela fábrica, comum nesses box). Na prática sobra bem menos para os apps, então vale aliviar o que der.`, '']);
+  if (fakeVer) tips.push(['', `O box diz ser Android ${esc(r.release)}, mas por dentro é Android ${esc(realVer)} (versão falsificada na fábrica).`, '']);
+  const seen = new Set(hog ? [pkgInfo(hog.name).pkg] : []);
+  const bg = r.procs.filter((p) => { const i = pkgInfo(p.name); if (seen.has(i.pkg)) return false; seen.add(i.pkg); return !p.act && i.a && i.a.launch && p.name !== r.home && i.pkg !== allMeta.me && !/^com\.google\.android\.gms/.test(i.pkg) && p.kb > 20 * 1024; }).slice(0, 3);
+  if (bg.length) tips.push(['', 'Apps abertos por trás ocupando memória: ' + bg.map((p) => `<b>${esc(pkgInfo(p.name).label)}</b> (${fmtMB(p.kb)})`).join(', ') + '.', bg.map((p) => { const i = pkgInfo(p.name), l = i.label.replace(/['"\\<>&]/g, ''); return `<button onclick="perfAct('am force-stop ${i.pkg}','Parando ${l}')">Parar ${l}</button>`; }).join('')]);
+  const tipsBox = document.createElement('div'); tipsBox.className = 'sec';
+  tipsBox.innerHTML = '<h3>O que dá para fazer</h3>' + tips.map(([cls, txt, acts]) => `<div class="tip ${cls}">${txt}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`).join('');
+  el.appendChild(tipsBox);
+
+  // ---- quem usa mais memória ----
+  const memBox = document.createElement('div'); memBox.className = 'sec';
+  memBox.innerHTML = '<h3>Quem usa mais memória</h3>';
+  const maxKb = r.procs.length ? r.procs[0].kb : 1;
+  for (const p of r.procs.slice(0, 14)) {
+    const i = pkgInfo(p.name);
+    const row = document.createElement('div'); row.className = 'prow';
+    const what = p.name === 'system' ? 'Sistema Android (não dá para mexer)' : i.cat === 'native' ? 'Serviço interno do sistema' : p.name === r.home ? 'Tela inicial (launcher)' : p.act ? 'Aberto/visível agora' : 'Rodando por trás';
+    row.innerHTML = `<div class="t"><b></b><span>${fmtMB(p.kb)}</span></div><small></small><div class="pbar"><i style="width:${Math.round(100 * p.kb / maxKb)}%"></i></div><div class="acts"></div>`;
+    row.querySelector('b').textContent = i.label; row.querySelector('small').textContent = p.name + ' · ' + what;
+    const acts = row.querySelector('.acts');
+    const canTouch = i.a && i.pkg !== allMeta.me && !['essential', 'me'].includes(i.cat) && p.name !== r.home;
+    if (i.a && i.pkg !== allMeta.me && p.name !== 'system' && i.cat !== 'native' && (i.cat !== 'essential' || p.name === r.home) && !i.a.pers && !SYS_UIDS.includes(i.a.uid)) { const b = document.createElement('button'); b.textContent = 'Parar'; b.onclick = () => perfAct('am force-stop ' + i.pkg, 'Parando ' + i.label); acts.appendChild(b); }
+    if (canTouch && i.a.sys) { const b = document.createElement('button'); b.textContent = 'Desativar'; b.onclick = () => pkgAct(i.a, 'disable'); acts.appendChild(b); }
+    if (canTouch && !i.a.sys) { const b = document.createElement('button'); b.textContent = 'Desinstalar'; b.className = 'danger'; b.onclick = () => pkgAct(i.a, 'remove'); acts.appendChild(b); }
+    if (!acts.children.length) acts.remove();
+    memBox.appendChild(row);
+  }
+  if (!r.procs.length) memBox.insertAdjacentHTML('beforeend', '<div class="hint">Não consegui ler a lista nesta TV.</div>');
+  el.appendChild(memBox);
+
+  // ---- processador ----
+  const cpuBox = document.createElement('div'); cpuBox.className = 'sec';
+  const busy = r.top.filter((t) => t.cpu > 0).slice(0, 6);
+  cpuBox.innerHTML = '<h3>Quem usa o processador agora</h3>' + (busy.length ? busy.map((t) => `<div class="prow"><div class="t"><b>${esc(pkgInfo(t.name).label)}</b><span>${t.cpu}%</span></div><small>${esc(t.name)} · ${esc(t.res)} de memória</small></div>`).join('') : '<div class="hint">Nada puxando o processador neste momento.</div>') + `<div class="hint" style="margin-top:6px">${r.cores || 4} núcleos = até ${(r.cores || 4) * 100}% no total.</div>`;
+  el.appendChild(cpuBox);
+}
 function renderAll() {
   const q = $('appq').value.toLowerCase(), el = $('applist');
   if (!allApps) { el.innerHTML = '<span class="hint">Lendo todos os apps da TV…</span>'; return; }
@@ -1029,6 +1191,8 @@ function renderAll() {
   updBulk();
 }
 function renderApps() {
+  if (appMode === 'perf') return renderPerf();
+  if ($('appqrow')) $('appqrow').style.display = '';
   if (appMode === 'all') return renderAll();
   $('bulkbar').classList.remove('on');
   const q = $('appq').value.toLowerCase(), el = $('applist');
