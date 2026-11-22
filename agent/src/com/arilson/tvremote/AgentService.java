@@ -300,6 +300,7 @@ public class AgentService extends Service {
                 }
                 break;
             case "key": key(acc, m.getString("key")); break;
+            case "appIcon": { final String ip = m.optString("pkg"); treeHandler.post(new Runnable() { public void run() { sendAppIcon(ip); } }); return; }
             case "tree": treeWantedUntil = System.currentTimeMillis() + 3500; final RemoteAccessibility fa = acc; treeHandler.post(new Runnable() { public void run() { sendTree(fa); } }); break;
         }
     }
@@ -312,7 +313,8 @@ public class AgentService extends Service {
         try {
             readScreenSize();
             sendJson(new JSONObject().put("type", "tree").put("nodes", acc.tree(screenW, screenH))
-                    .put("app", appLabel(acc.foregroundPkg())).put("w", screenW).put("h", screenH)
+                    .put("app", appLabel(acc.foregroundPkg())).put("pkg", lastPkg).put("theme", appTheme(lastPkg))
+                    .put("w", screenW).put("h", screenH)
                     .put("focus", focusJson(acc.realFocus(screenW, screenH))));
         } catch (Exception ignored) {}
     }
@@ -327,6 +329,81 @@ public class AgentService extends Service {
     private static JSONArray focusJson(int[] f) {
         if (f == null) return null;
         JSONArray a = new JSONArray(); for (int v : f) a.put(v); return a;
+    }
+
+    // ---------- cores do tema do app (para desenhar a tela parecida com o original) ----------
+    private String themePkg = null; private JSONObject themeCache = null;
+    private JSONObject appTheme(String pkg) {
+        if (pkg == null || pkg.length() == 0) return null;
+        if (pkg.equals(themePkg)) return themeCache;
+        themePkg = pkg; themeCache = null;
+        try {
+            PackageManager pm = getPackageManager();
+            Context pc = createPackageContext(pkg, Context.CONTEXT_IGNORE_SECURITY);
+            int theme = 0;
+            Intent li = pm.getLeanbackLaunchIntentForPackage(pkg);
+            if (li == null) li = pm.getLaunchIntentForPackage(pkg);
+            if (li != null && li.getComponent() != null) {
+                try { theme = pm.getActivityInfo(li.getComponent(), 0).getThemeResource(); } catch (Exception ignored) {}
+            }
+            if (theme == 0) theme = pm.getApplicationInfo(pkg, 0).theme;
+            if (theme != 0) pc.setTheme(theme);
+            android.content.res.Resources.Theme th = pc.getTheme();
+            JSONObject o = new JSONObject();
+            putColor(o, "bg", pc, th, android.R.attr.windowBackground, 0);
+            if (!o.has("bg")) putColor(o, "bg", pc, th, android.R.attr.colorBackground, 0);
+            putColor(o, "fg", pc, th, android.R.attr.textColorPrimary, 0);
+            putColor(o, "fg2", pc, th, android.R.attr.textColorSecondary, 0);
+            putColor(o, "primary", pc, th, android.R.attr.colorPrimary, pc.getResources().getIdentifier("colorPrimary", "attr", pkg));
+            putColor(o, "accent", pc, th, android.R.attr.colorAccent, pc.getResources().getIdentifier("colorAccent", "attr", pkg));
+            if (!o.has("accent")) putColor(o, "accent", pc, th, 0, pc.getResources().getIdentifier("colorSecondary", "attr", pkg));
+            themeCache = o.length() > 0 ? o : null;
+        } catch (Throwable ignored) {}
+        return themeCache;
+    }
+    private static void putColor(JSONObject o, String k, Context pc, android.content.res.Resources.Theme th, int attr, int appAttr) {
+        int[] attrs = appAttr != 0 ? new int[]{ appAttr, attr } : new int[]{ attr };
+        for (int a : attrs) {
+            if (a == 0) continue;
+            try {
+                android.util.TypedValue tv = new android.util.TypedValue();
+                if (!th.resolveAttribute(a, tv, true)) continue;
+                Integer c = null;
+                if (tv.type >= android.util.TypedValue.TYPE_FIRST_COLOR_INT && tv.type <= android.util.TypedValue.TYPE_LAST_COLOR_INT) c = tv.data;
+                else if (tv.resourceId != 0) {
+                    try { c = pc.getResources().getColorStateList(tv.resourceId, th).getDefaultColor(); }
+                    catch (Exception e) {
+                        android.graphics.drawable.Drawable dr = pc.getResources().getDrawable(tv.resourceId, th);
+                        if (dr instanceof android.graphics.drawable.ColorDrawable) c = ((android.graphics.drawable.ColorDrawable) dr).getColor();
+                    }
+                }
+                if (c != null) { o.put(k, String.format("#%08X", c)); return; }
+            } catch (Throwable ignored) {}
+        }
+    }
+    /** Ícone do app em PNG (base64), para o cabeçalho/logo da tela reconstruída. */
+    void sendAppIcon(String pkg) {
+        try {
+            android.graphics.drawable.Drawable d = getPackageManager().getApplicationIcon(pkg);
+            int sz = 128;
+            Bitmap b = Bitmap.createBitmap(sz, sz, Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas c = new android.graphics.Canvas(b);
+            d.setBounds(0, 0, sz, sz); d.draw(c);
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            b.compress(Bitmap.CompressFormat.PNG, 100, bo);
+            String data = android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP);
+            String banner = null;
+            try {
+                android.graphics.drawable.Drawable bd = getPackageManager().getApplicationBanner(pkg);
+                if (bd != null) {
+                    Bitmap bb = Bitmap.createBitmap(320, 180, Bitmap.Config.ARGB_8888);
+                    android.graphics.Canvas bc = new android.graphics.Canvas(bb); bd.setBounds(0, 0, 320, 180); bd.draw(bc);
+                    ByteArrayOutputStream bo2 = new ByteArrayOutputStream(); bb.compress(Bitmap.CompressFormat.PNG, 100, bo2);
+                    banner = android.util.Base64.encodeToString(bo2.toByteArray(), android.util.Base64.NO_WRAP);
+                }
+            } catch (Throwable ignored) {}
+            sendJson(new JSONObject().put("type", "appIcon").put("pkg", pkg).put("icon", data).put("banner", banner == null ? JSONObject.NULL : banner));
+        } catch (Throwable ignored) {}
     }
 
     private String lastPkg = "", lastLabel = "";

@@ -78,6 +78,9 @@
     <button onclick="key('mute')">🔇</button>
     <button onclick="send({type:'startCapture'})" title="Pede o consentimento de captura na TV (o agente tenta aceitar sozinho)">▶ Capturar tela</button>
     <button id="treebtn" onclick="toggleTree()" title="Mostra os textos e botões da tela da TV (funciona até em apps que deixam a imagem preta)">📝 Textos da tela</button>
+    <select id="treemode" onchange="setTreeMode(this.value)" title="Como mostrar os textos da tela">
+      <option value="auto">Automático</option><option value="draw">Só desenho</option><option value="over">Sobre a imagem</option>
+    </select>
     <select id="qual" onchange="setQuality()">
       <option value="640,50,6">Baixa</option>
       <option value="960,60,10" selected>Média</option>
@@ -223,7 +226,12 @@ function connect() {
     else if (m.type === 'status') log(`[${devName(m.device)}] ${m.msg}`, m.level);
     else if (m.type === 'apps') { apps = m.list.sort((a, b) => a.label.localeCompare(b.label)); renderApps(); }
     else if (m.type === 'progress') setProg(m.key || m.name, m.pct, `TV baixando ${m.name}`);
-    else if (m.type === 'tree') { treeNodes = m.nodes || []; treeFocus = m.focus || null; treeApp = m.app || ''; treeBlack = imgIsBlack(); drawTree(); }
+    else if (m.type === 'tree') {
+      treeNodes = m.nodes || []; treeFocus = m.focus || null; treeApp = m.app || ''; treeMsg = m; treeBlack = imgIsBlack();
+      if (m.pkg && !(m.pkg in appIcons)) { appIcons[m.pkg] = null; send({ type: 'appIcon', pkg: m.pkg }); }
+      drawTree();
+    }
+    else if (m.type === 'appIcon') { if (m.icon) { const im = new Image(); im.onload = () => { appIcons[m.pkg] = im; drawTree(); }; im.src = 'data:image/png;base64,' + m.icon; } }
     else if (m.type === 'files') { filePath = m.path; fileRoot = m.root || fileRoot; renderFiles(m.list); }
     else if (m.type === 'downloadReady') {
       log(`Arquivo pronto: ${m.name}`, 'ok');
@@ -245,16 +253,21 @@ function toggleTree() {
   if (treeOn) { send({ type: 'tree' }); treeTimer = setInterval(() => { if (current && ws && ws.readyState === 1) send({ type: 'tree' }); }, 1000); }
   drawTree();
 }
-let treeApp = '', treeBlack = false, treeFocus = null;
+let treeApp = '', treeBlack = false, treeFocus = null, treeMsg = {}, treeMode = 'auto';
+const appIcons = {}; // pkg -> Image (ícone real do app, vindo da TV)
+function setTreeMode(v) { treeMode = v; try { localStorage.setItem('tvr_treemode', v); } catch {} drawTree(); }
+try { treeMode = localStorage.getItem('tvr_treemode') || 'auto'; } catch {}
+if ($('treemode')) $('treemode').value = treeMode;
+// imagem "preta de verdade" = app protegido. Usa o pixel mais claro (não a média), para não confundir com app de tema escuro
 function imgIsBlack() {
   const img = $('screen');
   if (img.style.display === 'none' || !img.naturalWidth) return true;
   try {
-    const c = imgIsBlack.c || (imgIsBlack.c = document.createElement('canvas')); c.width = 32; c.height = 18;
-    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 32, 18);
-    const d = g.getImageData(0, 0, 32, 18).data; let sum = 0;
-    for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2];
-    return sum / (d.length / 4) / 3 < 6;
+    const c = imgIsBlack.c || (imgIsBlack.c = document.createElement('canvas')); c.width = 64; c.height = 36;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 64, 36);
+    const d = g.getImageData(0, 0, 64, 36).data; let bright = 0;
+    for (let i = 0; i < d.length; i += 4) { const v = d[i] + d[i + 1] + d[i + 2]; if (v > 24) bright++; }
+    return bright < 6; // praticamente nenhum pixel aceso
   } catch { return false; }
 }
 function treeRect() {
@@ -263,7 +276,8 @@ function treeRect() {
     const r = img.getBoundingClientRect();
     return { x: r.left - wrap.left, y: r.top - wrap.top, w: r.width, h: r.height };
   }
-  const W = wrap.width - 24, H = wrap.height - 24; let w = W, h = W * 9 / 16; if (h > H) { h = H; w = H * 16 / 9; }
+  const sw = treeMsg.w || 16, sh = treeMsg.h || 9;
+  const W = wrap.width - 24, H = wrap.height - 24; let w = W, h = W * sh / sw; if (h > H) { h = H; w = H * sw / sh; }
   return { x: (wrap.width - w) / 2, y: (wrap.height - h) / 2, w, h };
 }
 function rr(g, x, y, w, h, r) { r = Math.max(0, Math.min(r, w / 2, h / 2)); g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
@@ -275,7 +289,7 @@ function wrapLines(g, t, maxW) {
     } out.push(line);
   } return out;
 }
-// escreve o texto do jeito mais parecido possível: tamanho pela altura da caixa, quebra de linha, alinhamento
+// texto sem posição exata (app não informou): estima tamanho pela caixa
 function drawText(g, t, X, Y, W, H, o) {
   o = o || {}; const pad = o.pad ?? 4, maxFs = o.maxFs || 34 * (o.scale || 1);
   let fs = Math.min(maxFs, Math.max(8, H * 0.62)), lines;
@@ -295,97 +309,128 @@ function drawText(g, t, X, Y, W, H, o) {
   }
   g.restore();
 }
+// texto com posição exata de cada linha (vinda da TV): desenha cada linha onde ela está, do tamanho real
+function drawExactText(g, t, layout, kx, ky, clip, color) {
+  const [ts, lines] = layout;
+  if (!lines || !lines.length) return false;
+  g.save(); g.beginPath(); g.rect(clip[0] - 1, clip[1] - 1, clip[2] + 2, clip[3] + 2); g.clip();
+  g.fillStyle = color; g.textBaseline = 'alphabetic';
+  for (const [lx, ly, lw, lh, s, e] of lines) {
+    const str = t.substring(s, e).replace(/\s+$/, ''); if (!str) continue;
+    const fs = ts > 0 ? ts * ky : lh * ky * 0.8;
+    g.font = fs + 'px Roboto,system-ui,sans-serif';
+    const X = lx * kx, Y = ly * ky, W = lw * kx, H = lh * ky, mw = g.measureText(str).width;
+    const sx = mw > 0 && W > 0 ? Math.max(0.6, Math.min(1.4, W / mw)) : 1; // ajusta a largura para bater com a TV
+    g.save(); g.translate(X, Y + H * 0.79); g.scale(sx, 1); g.fillText(str, 0, 0); g.restore();
+  }
+  g.restore();
+  return true;
+}
+function hexA(c, a) { // '#AARRGGBB' (Android) -> rgba()
+  if (!c) return null; const v = parseInt(c.slice(1), 16) >>> 0;
+  const A = c.length > 7 ? ((v >>> 24) & 255) / 255 : 1, r = (v >>> 16) & 255, gg = (v >>> 8) & 255, b = v & 255;
+  return `rgba(${r},${gg},${b},${(a ?? 1) * (A || 1)})`;
+}
+function lum(c) { if (!c) return 0; const v = parseInt(c.slice(1), 16) >>> 0; return (0.299 * ((v >>> 16) & 255) + 0.587 * ((v >>> 8) & 255) + 0.114 * (v & 255)) / 255; }
 function drawTree() {
   const c = $('treeov');
   if (!treeOn) { c.style.display = 'none'; return; }
-  const R = treeRect(), dpr = window.devicePixelRatio || 1, solo = treeBlack;
+  const R = treeRect(), dpr = window.devicePixelRatio || 1;
+  const solo = treeMode === 'draw' || (treeMode === 'auto' && treeBlack);
   c.style.display = 'block'; c.style.left = R.x + 'px'; c.style.top = R.y + 'px'; c.style.width = R.w + 'px'; c.style.height = R.h + 'px';
   c.classList.toggle('solo', solo);
   c.width = Math.round(R.w * dpr); c.height = Math.round(R.h * dpr);
   const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, R.w, R.h);
-  const sc = R.w / 1000, scale = R.w / 960;
-  if (solo) {
-    const bg = g.createLinearGradient(0, 0, 0, R.h); bg.addColorStop(0, '#111827'); bg.addColorStop(1, '#0b1020');
-    g.fillStyle = bg; g.fillRect(0, 0, R.w, R.h);
-  }
-  const A = solo ? 1 : 0.85; // no modo "sobre a imagem" fica levemente transparente
+  const sc = R.w / 1000, scale = R.w / 960, sw = treeMsg.w || 1920, sh = treeMsg.h || 1080, kx = R.w / sw, ky = R.h / sh;
+  // cores do próprio app (tema), com padrão escuro se o app não informar
+  const th = treeMsg.theme || {};
+  let bgC = th.bg && lum(th.bg) >= 0 ? th.bg : '#FF111827';
+  if (th.bg && parseInt(th.bg.slice(1, 3), 16) < 0x80) bgC = '#FF111827'; // fundo transparente: usa escuro
+  const light = lum(bgC) > 0.55;
+  const fg = th.fg && Math.abs(lum(th.fg) - lum(bgC)) > 0.3 ? hexA(th.fg) : (light ? '#111827' : '#e5e7eb');
+  const fg2 = th.fg2 && Math.abs(lum(th.fg2) - lum(bgC)) > 0.2 ? hexA(th.fg2) : (light ? '#4b5563' : '#9ca3af');
+  const accent = th.accent || th.primary || '#FF3B82F6';
+  const ink = (a) => light ? `rgba(0,0,0,${a})` : `rgba(255,255,255,${a})`;
+  if (solo) { g.fillStyle = hexA(bgC); g.fillRect(0, 0, R.w, R.h); }
+  const icon = appIcons[treeMsg.pkg];
   let focus = null;
   for (const n of treeNodes) {
-    const [x, y, w, h, t, f, type = (n[4] ? 1 : 0), val = -1] = n;
+    const [x, y, w, h, t, f, type = (n[4] ? 1 : 0), val = -1, layout = null, vid = ''] = n;
     const X = x * sc, Y = y * R.h / 1000, W = w * sc, H = h * R.h / 1000;
     if (W < 2 || H < 2) continue;
-    const foc = f & 1, sel = f & 16, dis = f & 128, click = f & 2, rad = Math.min(10 * scale, H / 4);
-    if (foc) focus = [X, Y, W, H];
-    g.globalAlpha = A * (dis ? 0.45 : 1);
+    const sel = f & 16, dis = f & 128, click = f & 2, rad = Math.min(10 * scale, H / 4);
+    if (f & 1) focus = [X, Y, W, H];
+    g.globalAlpha = dis ? 0.45 : 1;
     if (!solo) { // sobre a imagem real: só contornos e rótulos discretos
-      if (t) { g.font = Math.max(9, Math.min(14, H * 0.5)) + 'px system-ui'; const tw = Math.min(g.measureText(t).width + 6, Math.max(W, 40)); g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(X, Y, tw, Math.min(H, 18)); drawText(g, t, X, Y, tw, Math.min(H, 18), { pad: 3, maxFs: 13 }); }
+      if (t && !(f & 512)) { g.font = Math.max(9, Math.min(14, H * 0.5)) + 'px system-ui'; const tw = Math.min(g.measureText(t).width + 6, Math.max(W, 40)); g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(X, Y, tw, Math.min(H, 18)); drawText(g, t, X, Y, tw, Math.min(H, 18), { pad: 3, maxFs: 13, color: '#fff' }); }
       else if (click) { g.strokeStyle = 'rgba(96,165,250,.5)'; g.lineWidth = 1; g.strokeRect(X + .5, Y + .5, W - 1, H - 1); }
       continue;
     }
+    const exact = layout && layout[1] && layout[1].length;
+    const txtColor = sel ? (light ? '#000' : '#fff') : fg;
+    // texto de descrição (de container/imagem) que repete o texto de um filho: não desenha de novo
+    const dupText = t && treeNodes.some((m) => m !== n && m[4] === t && m[0] >= x && m[1] >= y && m[0] + m[2] <= x + w && m[1] + m[3] <= y + h);
     switch (type) {
-      case 8: // listas/rolagem: fundo bem sutil
-        g.fillStyle = 'rgba(255,255,255,.02)'; rr(g, X, Y, W, H, rad); g.fill(); break;
+      case 8: break; // listas: sem fundo (o app desenha o fundo, não sabemos qual)
       case 3: { // imagem/ícone
-        g.fillStyle = sel ? 'rgba(59,130,246,.25)' : 'rgba(148,163,184,.14)'; rr(g, X, Y, W, H, rad); g.fill();
-        g.strokeStyle = 'rgba(148,163,184,.25)'; g.lineWidth = 1; g.stroke();
+        const isLogo = icon && (/logo|icon|brand|app_?img/i.test(vid) || (t && treeApp && t.toLowerCase().includes(treeApp.toLowerCase())));
+        if (isLogo) { const s = Math.min(W, H); g.drawImage(icon, X + (W - s) / 2, Y + (H - s) / 2, s, s); break; }
+        g.fillStyle = sel ? hexA(accent, .3) : ink(.08); rr(g, X, Y, W, H, rad); g.fill();
+        g.strokeStyle = ink(.14); g.lineWidth = 1; g.stroke();
         const s = Math.min(W, H) * 0.42;
-        if (s >= 10) { // desenho de "foto"
-          const cx = X + W / 2, cy = Y + H / 2 - (t && H > 60 ? H * 0.1 : 0);
-          g.strokeStyle = 'rgba(203,213,225,.55)'; g.lineWidth = Math.max(1, s / 12);
+        if (s >= 10) {
+          const cx = X + W / 2, cy = Y + H / 2;
+          g.strokeStyle = ink(.35); g.lineWidth = Math.max(1, s / 12);
           g.strokeRect(cx - s / 2, cy - s / 2.6, s, s / 1.3);
           g.beginPath(); g.moveTo(cx - s / 2, cy + s / 3.2); g.lineTo(cx - s / 8, cy - s / 12); g.lineTo(cx + s / 10, cy + s / 7); g.lineTo(cx + s / 4, cy); g.lineTo(cx + s / 2, cy + s / 3.2); g.stroke();
-          g.beginPath(); g.arc(cx + s / 4.5, cy - s / 6, s / 12, 0, 7); g.stroke();
         }
-        if (t && H > 40 && !treeNodes.some((m) => m !== n && m[4] === t)) { const bh = Math.min(H * 0.3, 30 * scale); g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(X, Y + H - bh, W, bh); drawText(g, t, X, Y + H - bh, W, bh, { center: true, scale, maxFs: 14 * scale }); }
+        if (t && H > 40 && !treeNodes.some((m) => m !== n && m[4] === t)) { const bh = Math.min(H * 0.3, 30 * scale); g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(X, Y + H - bh, W, bh); drawText(g, t, X, Y + H - bh, W, bh, { center: true, scale, maxFs: 14 * scale, color: '#fff' }); }
         break; }
       case 4: { // campo de texto
-        g.fillStyle = 'rgba(255,255,255,.07)'; rr(g, X, Y, W, H, rad); g.fill();
-        g.strokeStyle = foc ? '#ffd34d' : 'rgba(148,163,184,.6)'; g.lineWidth = foc ? 2 : 1; g.stroke();
-        g.fillStyle = foc ? '#ffd34d' : '#64748b'; g.fillRect(X + 6, Y + H - 3, W - 12, 2);
-        if (t) drawText(g, t, X, Y, W, H, { pad: 10, color: (f & 32) ? '#7c8799' : '#f1f5f9', scale });
+        g.fillStyle = ink(.06); rr(g, X, Y, W, H, rad); g.fill();
+        g.strokeStyle = ink(.35); g.lineWidth = 1; g.stroke();
+        g.fillStyle = ink(.4); g.fillRect(X + 6, Y + H - 3, W - 12, 2);
+        if (t && !(exact && drawExactText(g, t, layout, kx, ky, [X, Y, W, H], fg)))
+          drawText(g, t, X, Y, W, H, { pad: 10, color: (f & 32) ? fg2 : fg, scale });
         break; }
       case 5: case 6: case 10: { // checkbox / chave / rádio
-        const on = f & 8, bs = Math.min(H * 0.6, 26 * scale);
+        const on = f & 8, bs = Math.min(H * 0.6, 26 * scale), onC = hexA(accent) || '#22c55e';
         let tx = X, tw = W;
-        if (type === 6) { // chave à direita
-          const sw = bs * 1.8, sx = X + W - sw - 8, sy = Y + (H - bs) / 2;
-          g.fillStyle = on ? '#22c55e' : '#475569'; rr(g, sx, sy, sw, bs, bs / 2); g.fill();
-          g.fillStyle = '#fff'; g.beginPath(); g.arc(on ? sx + sw - bs / 2 : sx + bs / 2, sy + bs / 2, bs / 2 - 2, 0, 7); g.fill();
-          tw = W - sw - 16;
+        if (type === 6) {
+          const swd = bs * 1.8, sx = X + W - swd - 8, sy = Y + (H - bs) / 2;
+          g.fillStyle = on ? onC : ink(.3); rr(g, sx, sy, swd, bs, bs / 2); g.fill();
+          g.fillStyle = '#fff'; g.beginPath(); g.arc(on ? sx + swd - bs / 2 : sx + bs / 2, sy + bs / 2, bs / 2 - 2, 0, 7); g.fill();
+          tw = W - swd - 16;
         } else {
           const bx = X + 6, by = Y + (H - bs) / 2;
-          g.strokeStyle = on ? '#22c55e' : '#94a3b8'; g.lineWidth = 2;
-          if (type === 10) { g.beginPath(); g.arc(bx + bs / 2, by + bs / 2, bs / 2, 0, 7); g.stroke(); if (on) { g.fillStyle = '#22c55e'; g.beginPath(); g.arc(bx + bs / 2, by + bs / 2, bs / 4, 0, 7); g.fill(); } }
-          else { rr(g, bx, by, bs, bs, 4); g.stroke(); if (on) { g.fillStyle = '#22c55e'; g.fill(); g.strokeStyle = '#fff'; g.beginPath(); g.moveTo(bx + bs * .22, by + bs * .52); g.lineTo(bx + bs * .42, by + bs * .72); g.lineTo(bx + bs * .78, by + bs * .3); g.stroke(); } }
+          g.strokeStyle = on ? onC : ink(.5); g.lineWidth = 2;
+          if (type === 10) { g.beginPath(); g.arc(bx + bs / 2, by + bs / 2, bs / 2, 0, 7); g.stroke(); if (on) { g.fillStyle = onC; g.beginPath(); g.arc(bx + bs / 2, by + bs / 2, bs / 4, 0, 7); g.fill(); } }
+          else { rr(g, bx, by, bs, bs, 4); g.stroke(); if (on) { g.fillStyle = onC; g.fill(); g.strokeStyle = '#fff'; g.beginPath(); g.moveTo(bx + bs * .22, by + bs * .52); g.lineTo(bx + bs * .42, by + bs * .72); g.lineTo(bx + bs * .78, by + bs * .3); g.stroke(); } }
           tx = X + bs + 12; tw = W - bs - 14;
         }
-        if (sel) { g.fillStyle = 'rgba(59,130,246,.18)'; rr(g, X, Y, W, H, rad); g.fill(); }
-        if (t) drawText(g, t, tx, Y, tw, H, { scale });
+        if (sel) { g.fillStyle = hexA(accent, .18); rr(g, X, Y, W, H, rad); g.fill(); }
+        if (t && !(exact && drawExactText(g, t, layout, kx, ky, [X, Y, W, H], txtColor))) drawText(g, t, tx, Y, tw, H, { scale, color: txtColor });
         break; }
       case 7: case 9: { // progresso / barra
         const v = Math.max(0, Math.min(1000, val < 0 ? 0 : val)) / 1000, bh = Math.max(3, Math.min(H * 0.35, 8 * scale)), by = Y + (H - bh) / 2;
-        g.fillStyle = 'rgba(148,163,184,.3)'; rr(g, X, by, W, bh, bh / 2); g.fill();
-        g.fillStyle = '#f97316'; rr(g, X, by, Math.max(bh, W * v), bh, bh / 2); g.fill();
+        g.fillStyle = ink(.2); rr(g, X, by, W, bh, bh / 2); g.fill();
+        g.fillStyle = hexA(accent) || '#f97316'; rr(g, X, by, Math.max(bh, W * v), bh, bh / 2); g.fill();
         if (type === 9) { g.fillStyle = '#fff'; g.beginPath(); g.arc(X + W * v, by + bh / 2, bh * 1.2, 0, 7); g.fill(); }
         break; }
-      case 2: { // botão
-        g.fillStyle = sel ? 'rgba(59,130,246,.35)' : 'rgba(255,255,255,.09)'; rr(g, X, Y, W, H, rad); g.fill();
-        g.strokeStyle = 'rgba(255,255,255,.16)'; g.lineWidth = 1; g.stroke();
-        if (t) drawText(g, t, X, Y, W, H, { center: true, bold: true, scale, pad: 8 });
-        break; }
-      case 1: // texto
-        if (sel) { g.fillStyle = 'rgba(59,130,246,.25)'; rr(g, X, Y, W, H, rad); g.fill(); }
-        if (t) drawText(g, t, X, Y, W, H, { scale, top: H > 80, color: sel ? '#fff' : '#e5e7eb' });
-        break;
-      default: // container clicável (cartões de menu, itens de lista)
-        if (click || sel) { g.fillStyle = sel ? 'rgba(59,130,246,.22)' : 'rgba(255,255,255,.05)'; rr(g, X, Y, W, H, rad); g.fill(); g.strokeStyle = 'rgba(255,255,255,.08)'; g.lineWidth = 1; g.stroke(); }
-        if (t && !treeNodes.some((m) => m !== n && m[4] === t && m[0] >= x && m[1] >= y && m[0] + m[2] <= x + w && m[1] + m[3] <= y + h))
-          drawText(g, t, X, Y, W, H, { center: W < 400 * sc, scale });
+      default: { // botões, textos e containers clicáveis (cartões, itens de lista)
+        const box = type === 2 || ((click || sel) && type !== 1);
+        if (sel) { g.fillStyle = hexA(accent, .35); rr(g, X, Y, W, H, rad); g.fill(); }
+        else if (box) { g.fillStyle = ink(type === 2 ? .08 : .04); rr(g, X, Y, W, H, rad); g.fill(); g.strokeStyle = ink(.1); g.lineWidth = 1; g.stroke(); }
+        if (!t || dupText) break;
+        if (exact && drawExactText(g, t, layout, kx, ky, [X, Y, W, H], txtColor)) break;
+        if (f & 512 && type === 0 && !click) break; // descrição de container sem texto visível
+        drawText(g, t, X, Y, W, H, { center: type === 2 || (box && W < 400 * sc), scale, top: type === 1 && H > 80, color: txtColor, bold: type === 2 && !exact });
+      }
     }
   }
   g.globalAlpha = 1;
   if (treeFocus) focus = [treeFocus[0] * sc, treeFocus[1] * R.h / 1000, treeFocus[2] * sc, treeFocus[3] * R.h / 1000];
-  if (focus) { // destaque de foco igual às TVs: borda laranja grossa com brilho
+  if (focus) {
     const [X, Y, W, H] = focus;
     const rad = Math.min(10 * scale, H / 4), gold = g.createLinearGradient(X, Y, X + W, Y + H);
     gold.addColorStop(0, '#fff3b0'); gold.addColorStop(0.35, '#ffd34d'); gold.addColorStop(0.7, '#d4a017'); gold.addColorStop(1, '#ffe680');
@@ -397,10 +442,10 @@ function drawTree() {
     g.restore();
   }
   if (solo) {
-    g.font = '600 12px system-ui'; g.textBaseline = 'top';
-    const lbl = (treeApp ? treeApp + ' · ' : '') + 'reconstruído (imagem protegida)';
-    const tw = g.measureText(lbl).width + 14; g.fillStyle = 'rgba(0,0,0,.55)'; rr(g, R.w - tw - 8, R.h - 26, tw, 20, 6); g.fill();
-    g.fillStyle = '#94a3b8'; g.fillText(lbl, R.w - tw - 1, R.h - 22);
+    g.font = '600 11px system-ui'; g.textBaseline = 'top';
+    const lbl = (treeApp ? treeApp + ' · ' : '') + 'reconstruído';
+    const tw = g.measureText(lbl).width + 14; g.fillStyle = 'rgba(0,0,0,.5)'; rr(g, R.w - tw - 6, R.h - 22, tw, 17, 6); g.fill();
+    g.fillStyle = '#cbd5e1'; g.fillText(lbl, R.w - tw + 1, R.h - 19);
   }
   if (!treeNodes.length) { g.fillStyle = '#94a3b8'; g.font = '14px system-ui'; g.textBaseline = 'top'; g.fillText('Nenhum texto encontrado nesta tela (vídeo puro ou app sem textos).', 12, 12); }
 }

@@ -324,6 +324,7 @@ public class RemoteAccessibility extends AccessibilityService {
             public int compare(AccessibilityWindowInfo a, AccessibilityWindowInfo b) { return a.getLayer() - b.getLayer(); }
         });
         boolean any = false;
+        extraBudget = 120; // no máximo 120 perguntas novas ao app por atualização (o resto vem do cache)
         for (AccessibilityWindowInfo w : wins) {
             AccessibilityNodeInfo r = w.getRoot();
             if (r == null) continue;
@@ -391,22 +392,85 @@ public class RemoteAccessibility extends AccessibilityService {
         return 0;
     }
 
+    // cache das linhas de texto (posição exata de cada linha), para não perguntar de novo ao app a cada segundo
+    private final java.util.HashMap<String, org.json.JSONArray> lineCache = new java.util.HashMap<>();
+    private int extraBudget = 0;
+
+    /**
+     * Posição real de cada linha do texto na tela (Android 8+), e tamanho real da fonte (Android 11+).
+     * Retorna [textSizePx, [[x,y,w,h,ini,fim], ...]] em pixels da tela, ou null se o app não informar.
+     */
+    private org.json.JSONArray textLayout(AccessibilityNodeInfo n, String text, Rect bounds) {
+        if (android.os.Build.VERSION.SDK_INT < 26 || text.length() == 0) return null;
+        String key = n.getViewIdResourceName() + "|" + bounds.toShortString() + "|" + text;
+        if (lineCache.containsKey(key)) return lineCache.get(key);
+        if (extraBudget-- <= 0) return null;
+        org.json.JSONArray res = null;
+        try {
+            List<String> avail = n.getAvailableExtraData();
+            float ts = -1;
+            if (android.os.Build.VERSION.SDK_INT >= 30 && avail != null && avail.contains(AccessibilityNodeInfo.EXTRA_DATA_RENDERING_INFO_KEY)) {
+                n.refreshWithExtraData(AccessibilityNodeInfo.EXTRA_DATA_RENDERING_INFO_KEY, new Bundle());
+                android.view.accessibility.AccessibilityNodeInfo.ExtraRenderingInfo ri = n.getExtraRenderingInfo();
+                if (ri != null) ts = ri.getTextSizeInPx();
+            }
+            org.json.JSONArray lines = new org.json.JSONArray();
+            if (avail != null && avail.contains(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY)) {
+                int len = Math.min(text.length(), 400);
+                Bundle args = new Bundle();
+                args.putInt(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_START_INDEX, 0);
+                args.putInt(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_LENGTH, len);
+                n.refreshWithExtraData(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY, args);
+                android.os.Parcelable[] arr = n.getExtras().getParcelableArray(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY);
+                if (arr != null) {
+                    float lt = 0, ll = 0, lr = 0, lb = 0; int ls = -1, le = -1;
+                    for (int i = 0; i < arr.length; i++) {
+                        if (!(arr[i] instanceof android.graphics.RectF)) continue; // letra escondida (cortada com "...")
+                        android.graphics.RectF c = (android.graphics.RectF) arr[i];
+                        if (c.width() <= 0 && text.charAt(Math.min(i, text.length() - 1)) != ' ') continue;
+                        boolean newLine = ls < 0 || Math.abs(c.top - lt) > (lb - lt) * 0.5f || c.left < ll - 2;
+                        if (newLine) {
+                            if (ls >= 0) lines.put(line(ll, lt, lr, lb, ls, le));
+                            lt = c.top; lb = c.bottom; ll = c.left; lr = c.right; ls = i; le = i + 1;
+                        } else {
+                            lr = Math.max(lr, c.right); lb = Math.max(lb, c.bottom); lt = Math.min(lt, c.top); le = i + 1;
+                        }
+                    }
+                    if (ls >= 0) lines.put(line(ll, lt, lr, lb, ls, le));
+                }
+            }
+            if (ts > 0 || lines.length() > 0) res = new org.json.JSONArray().put(Math.round(ts * 10) / 10.0).put(lines);
+        } catch (Exception ignored) {}
+        if (lineCache.size() > 800) lineCache.clear();
+        lineCache.put(key, res);
+        return res;
+    }
+    private static org.json.JSONArray line(float l, float t, float r, float b, int s, int e) throws org.json.JSONException {
+        return new org.json.JSONArray().put(Math.round(l)).put(Math.round(t)).put(Math.round(r - l)).put(Math.round(b - t)).put(s).put(e);
+    }
+
     private void walkTree(AccessibilityNodeInfo n, org.json.JSONArray out, int sw, int sh, int d) {
-        if (n == null || d > 50 || out.length() > 700) return;
-        if (!n.isVisibleToUser()) return;
-        CharSequence t = n.getText();
+        if (n == null || d > 60 || out.length() > 900) return;
+        // filhos podem estar visíveis mesmo quando o pai diz que não (alguns apps): sempre desce na árvore
+        if (n.isVisibleToUser()) emitNode(n, out, sw, sh);
+        for (int i = 0; i < n.getChildCount(); i++) walkTree(n.getChild(i), out, sw, sh, d + 1);
+    }
+
+    private void emitNode(AccessibilityNodeInfo n, org.json.JSONArray out, int sw, int sh) {
+        CharSequence real = n.getText();
+        CharSequence t = real;
         boolean hint = false;
         if ((t == null || t.length() == 0) && android.os.Build.VERSION.SDK_INT >= 26 && n.getHintText() != null) { t = n.getHintText(); hint = true; }
-        if (t == null || t.length() == 0) t = n.getContentDescription();
-        String txt = t == null ? "" : t.toString().trim();
-        if (txt.length() > 200) txt = txt.substring(0, 200) + "…";
+        boolean desc = false;
+        if (t == null || t.length() == 0) { t = n.getContentDescription(); desc = t != null && t.length() > 0; }
+        String txt = t == null ? "" : t.toString();
+        if (txt.length() > 400) txt = txt.substring(0, 400);
         int type = typeOf(n);
-        boolean focused = false; // o foco real vem de realFocus(), mandado à parte
         boolean click = n.isClickable() || n.isFocusable() || n.isLongClickable();
-        if (type == 0 && click && txt.length() > 0 && n.getChildCount() == 0) type = 2;
-        int flags = (focused ? 1 : 0) | (click ? 2 : 0) | (n.isEditable() ? 4 : 0) | (n.isChecked() ? 8 : 0)
+        if (type == 0 && click && txt.trim().length() > 0 && n.getChildCount() == 0) type = 2;
+        int flags = (click ? 2 : 0) | (n.isEditable() ? 4 : 0) | (n.isChecked() ? 8 : 0)
                 | (n.isSelected() ? 16 : 0) | (hint ? 32 : 0) | (n.isCheckable() ? 64 : 0) | (n.isEnabled() ? 0 : 128)
-                | (n.isScrollable() ? 256 : 0);
+                | (n.isScrollable() ? 256 : 0) | (desc ? 512 : 0);
         if (n.isCheckable() && type < 5) type = 5;
         int value = -1;
         AccessibilityNodeInfo.RangeInfo ri = n.getRangeInfo();
@@ -414,19 +478,21 @@ public class RemoteAccessibility extends AccessibilityService {
             value = Math.round((ri.getCurrent() - ri.getMin()) * 1000f / (ri.getMax() - ri.getMin()));
             if (type != 9) type = 7;
         }
-        boolean keep = txt.length() > 0 || click || focused || type >= 2 || n.isSelected();
-        if (keep) {
-            Rect r = new Rect(); n.getBoundsInScreen(r);
-            if (!r.intersect(0, 0, sw, sh)) r.setEmpty();
-            if (r.width() > 2 && r.height() > 2 && sw > 0 && sh > 0) {
-                try {
-                    out.put(new org.json.JSONArray()
-                            .put(Math.round(r.left * 1000f / sw)).put(Math.round(r.top * 1000f / sh))
-                            .put(Math.round(r.width() * 1000f / sw)).put(Math.round(r.height() * 1000f / sh))
-                            .put(txt).put(flags).put(type).put(value));
-                } catch (Exception ignored) {}
-            }
-        }
-        for (int i = 0; i < n.getChildCount(); i++) walkTree(n.getChild(i), out, sw, sh, d + 1);
+        boolean keep = txt.trim().length() > 0 || click || type >= 2 || n.isSelected();
+        if (!keep) return;
+        Rect r = new Rect(); n.getBoundsInScreen(r);
+        Rect full = new Rect(r);
+        if (!r.intersect(0, 0, sw, sh)) r.setEmpty();
+        if (r.width() <= 2 || r.height() <= 2 || sw <= 0 || sh <= 0) return;
+        String vid = n.getViewIdResourceName();
+        if (vid != null) vid = vid.substring(vid.indexOf('/') + 1); else vid = "";
+        org.json.JSONArray layout = (real != null && real.length() > 0 && !hint) ? textLayout(n, txt, full) : null;
+        try {
+            out.put(new org.json.JSONArray()
+                    .put(Math.round(r.left * 1000f / sw)).put(Math.round(r.top * 1000f / sh))
+                    .put(Math.round(r.width() * 1000f / sw)).put(Math.round(r.height() * 1000f / sh))
+                    .put(txt).put(flags).put(type).put(value)
+                    .put(layout == null ? org.json.JSONObject.NULL : layout).put(vid));
+        } catch (Exception ignored) {}
     }
 }
