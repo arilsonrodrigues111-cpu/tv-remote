@@ -59,6 +59,8 @@ public class AdbShell {
     private final java.util.concurrent.ConcurrentHashMap<Integer, Exec> execs = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicInteger nextId = new java.util.concurrent.atomic.AtomicInteger(100);
     private final android.os.Handler timer = new android.os.Handler(android.os.Looper.getMainLooper());
+    // o Android não deixa usar a rede na thread principal: envios de exec/close vão por esta fila
+    private final java.util.concurrent.ExecutorService io = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private AdbShell(Context c) { ctx = c.getApplicationContext(); }
 
@@ -84,8 +86,11 @@ public class AdbShell {
         final int id = nextId.incrementAndGet();
         Exec e = new Exec(); e.cb = cb;
         execs.put(id, e);
-        try { send(OPEN, id, 0, ("shell:" + cmd + "\0").getBytes("UTF-8")); }
-        catch (Exception ex) { execs.remove(id); return false; }
+        final String fcmd = cmd;
+        io.execute(new Runnable() { public void run() {
+            try { send(OPEN, id, 0, ("shell:" + fcmd + "\0").getBytes("UTF-8")); }
+            catch (Exception ex) { finishExec(id, "[não consegui enviar: " + ex + "]", false); }
+        }});
         timer.postDelayed(new Runnable() { public void run() { finishExec(id, "\n[tempo esgotado]\n", true); } }, 25000);
         return true;
     }
@@ -93,7 +98,10 @@ public class AdbShell {
     private void finishExec(int id, String tail, boolean closeIt) {
         Exec e = execs.remove(id);
         if (e == null) return;
-        if (closeIt && e.remote != 0) { try { send(CLSE, id, e.remote, null); } catch (Exception ignored) {} }
+        if (closeIt && e.remote != 0) {
+            final int rid = e.remote;
+            io.execute(new Runnable() { public void run() { try { send(CLSE, id, rid, null); } catch (Exception ignored) {} } });
+        }
         String out;
         try { out = new String(e.out.toByteArray(), "UTF-8"); } catch (Exception x) { out = ""; }
         if (tail != null) out += tail;
