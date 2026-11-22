@@ -119,7 +119,8 @@ const server = http.createServer((req, res) => {
   const f = path.join(__dirname, 'public', path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
   fs.readFile(f, (err, buf) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
-    res.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream' });
+    // sem cache (Cloudflare guardava o agent.apk antigo)
+    res.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream', 'cache-control': 'no-store, max-age=0' });
     res.end(buf);
   });
 });
