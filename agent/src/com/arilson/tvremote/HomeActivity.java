@@ -138,13 +138,14 @@ public class HomeActivity extends Activity {
         tab.setOrientation(LinearLayout.VERTICAL);
         tab.setGravity(Gravity.CENTER_HORIZONTAL);
         TextView apps = txt("Apps", 30, Color.WHITE, false);
-        tab.addView(apps);
+        apps.setSingleLine(true);
+        tab.addView(apps, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         View line = new View(this);
         GradientDrawable ld = new GradientDrawable(); ld.setColor(Color.WHITE); ld.setCornerRadius(px(2));
         line.setBackground(ld);
         LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(px(36), px(4)); llp.topMargin = px(8);
         tab.addView(line, llp);
-        top.addView(tab);
+        top.addView(tab, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         View spacer = new View(this);
         top.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1f));
 
@@ -155,6 +156,7 @@ public class HomeActivity extends Activity {
         gear.setOnFocusChangeListener(new View.OnFocusChangeListener() { public void onFocusChange(View v, boolean f) { v.invalidate(); } });
         top.addView(gear, new LinearLayout.LayoutParams(px(60), px(60)));
         clock = txt("", 40, Color.WHITE, false);
+        clock.setSingleLine(true);
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         clp.leftMargin = px(36);
         top.addView(clock, clp);
@@ -278,12 +280,29 @@ public class HomeActivity extends Activity {
         for (String p : order) { AppItem it = byPkg.remove(p); if (it != null) out.add(it); }
         // novos: em ordem alfabética, no fim da fileira
         fresh.addAll(byPkg.values());
+        final Context cx = c;
         java.util.Collections.sort(fresh, new java.util.Comparator<AppItem>() {
-            public int compare(AppItem a, AppItem b) { return a.label.compareToIgnoreCase(b.label); }
+            public int compare(AppItem a, AppItem b) {
+                int ra = rank(cx, a.pkg), rb = rank(cx, b.pkg);
+                return ra != rb ? ra - rb : a.label.compareToIgnoreCase(b.label);
+            }
         });
         out.addAll(fresh);
         if (!fresh.isEmpty() && !all) Launcher.saveOrder(c, pkgs(out));
         return out;
+    }
+
+    private static final String[] STREAMING = {"youtube", "netflix", "amazon", "primevideo", "disney", "globo", "hbo", "max", "spotify",
+            "paramount", "star", "pluto", "twitch", "deezer", "crunchyroll", "vix", "kodi", "smarters", "iptv", "xciptv", "stb", "tivimate"};
+    /** Ordem inicial: o que o cliente instalou, depois streaming conhecido, depois loja, ferramentas e o TechSolutions. */
+    static int rank(Context c, String pkg) {
+        if (pkg.equals(c.getPackageName())) return 4;
+        if (pkg.equals("com.android.vending")) return 2;
+        boolean sys = false;
+        try { sys = (c.getPackageManager().getApplicationInfo(pkg, 0).flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0; } catch (Throwable ignored) {}
+        String p = pkg.toLowerCase(java.util.Locale.ROOT);
+        for (String k : STREAMING) if (p.contains(k)) return sys ? 1 : 0;
+        return sys ? 3 : 0;
     }
 
     static List<String> pkgs(List<AppItem> l) { List<String> s = new ArrayList<>(); for (AppItem i : l) s.add(i.pkg); return s; }
