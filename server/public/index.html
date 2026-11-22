@@ -911,7 +911,7 @@ function renderHead() {
   $('devname').textContent = (d.client || 'Sem nome') + '  ✏';
   $('devsub').innerHTML = `<span class="dot ${online ? 'on' : 'off'}" style="width:8px;height:8px"></span> ${online ? 'Online' : 'Offline ' + esc(ago(d.lastSeen))} · ${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app v' + d.agentVersion].filter(Boolean).join(' · '))}`;
   if (!online) { $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">💤</div>Esta TV está desligada ou sem internet.<br><span class="hint">Ela aparece aqui sozinha quando ligar.</span>'; }
-  const old = !d.agentVersion || parseFloat(d.agentVersion) < 2.4;
+  const old = !d.agentVersion || parseFloat(d.agentVersion) < 2.5;
   $('perms').innerHTML = !online ? 'TV offline.' : [
     accRow(d),
     permRow(!!d.capturing, 'Ver a tela', 'Passo 2 do app, ou peça daqui.', 'Pedir', "send({type:'startCapture'})"),
