@@ -51,6 +51,7 @@ public class AdbShell {
     private final LinkedBlockingQueue<String> queue = new LinkedBlockingQueue<>();
     private Thread worker;
     private volatile boolean stop = false;
+    private volatile boolean rootTried = false;
     private long lastTry = 0;
 
     /** Comandos com resposta (diagnóstico): cada um abre um canal próprio no adbd. */
@@ -66,6 +67,31 @@ public class AdbShell {
 
     public static synchronized AdbShell get(Context c) { if (inst == null) inst = new AdbShell(c); return inst; }
     public static boolean isReady() { return inst != null && inst.ready; }
+
+    /** Se a TV tiver root, liga a depuração por TCP e autoriza a chave do app — assim o ADB conecta
+     *  sozinho, sem PC, sem cabo e sem a janela "Permitir depuração?". Bloqueante; chamar fora da main thread. */
+    public boolean bootstrapViaRoot() {
+        try {
+            if (!RootShell.check()) return false;
+            String pub;
+            try { pub = pubKey((RSAPublicKey) loadKey().getPublic()); } catch (Exception e) { return false; }
+            String script =
+                "mkdir -p /data/misc/adb\n" +
+                "if ! grep -q techsolutions /data/misc/adb/adb_keys 2>/dev/null; then echo \"" + pub + " techsolutions\" >> /data/misc/adb/adb_keys; fi\n" +
+                "chmod 640 /data/misc/adb/adb_keys 2>/dev/null\n" +
+                "chown system:shell /data/misc/adb/adb_keys 2>/dev/null\n" +
+                "restorecon /data/misc/adb/adb_keys 2>/dev/null\n" +
+                "pm grant " + ctx.getPackageName() + " android.permission.WRITE_SECURE_SETTINGS 2>/dev/null\n" +
+                "settings put global adb_enabled 1\n" +
+                "setprop service.adb.tcp.port 5555\n" +
+                "setprop persist.adb.tcp.port 5555\n" +
+                "stop adbd\n" +
+                "start adbd\n" +
+                "echo BOOT_OK";
+            String out = RootShell.run(script);
+            return out != null && out.contains("BOOT_OK");
+        } catch (Throwable t) { return false; }
+    }
 
     /** Executa um comando no shell da TV (assíncrono). Conecta se preciso. */
     public void run(String cmd) {
@@ -122,11 +148,31 @@ public class AdbShell {
         try { if (sock != null) sock.close(); } catch (Exception ignored) {}
     }
 
+    /** Conecta no adbd (TCP 5555). Se a porta estiver fechada e a TV tiver root, liga a depuração pelo root e tenta de novo. */
+    private Socket openSocket() throws Exception {
+        try {
+            Socket s = new Socket();
+            s.connect(new InetSocketAddress("127.0.0.1", 5555), 2500);
+            return s;
+        } catch (Exception first) {
+            if (!rootTried) {
+                rootTried = true;
+                state = "ligando pelo root…";
+                if (bootstrapViaRoot()) {
+                    try { Thread.sleep(1800); } catch (InterruptedException ignored) {}
+                    Socket s = new Socket();
+                    s.connect(new InetSocketAddress("127.0.0.1", 5555), 2500);
+                    return s;
+                }
+            }
+            throw first;
+        }
+    }
+
     private void loop() {
         try {
             state = "conectando";
-            sock = new Socket();
-            sock.connect(new InetSocketAddress("127.0.0.1", 5555), 2500);
+            sock = openSocket();
             sock.setTcpNoDelay(true);
             in = sock.getInputStream();
             out = sock.getOutputStream();
