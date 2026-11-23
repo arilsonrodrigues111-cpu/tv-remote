@@ -161,7 +161,7 @@ public class HomeActivity extends Activity {
         clp.leftMargin = px(36);
         top.addView(clock, clp);
         FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(80), Gravity.TOP);
-        tlp.leftMargin = px(96); tlp.rightMargin = px(96); tlp.topMargin = px(46);
+        tlp.leftMargin = px(110); tlp.rightMargin = px(108); tlp.topMargin = px(44);
         root.addView(top, tlp);
 
         // fileira de apps (rola para a direita)
@@ -177,10 +177,10 @@ public class HomeActivity extends Activity {
         row.setClipChildren(false);
         row.setClipToPadding(false);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(px(96), px(30), px(96), px(30));
+        row.setPadding(px(110), px(20), px(110), px(20));
         scroll.addView(row, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(180 + 60), Gravity.TOP);
-        slp.topMargin = px(350);
+        FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(108 + 40), Gravity.TOP);
+        slp.topMargin = px(464 - 20);
         root.addView(scroll, slp);
 
         hint = txt(baseHint(), 22, Color.rgb(120, 120, 120), false);
@@ -323,7 +323,7 @@ public class HomeActivity extends Activity {
         f.setClickable(true);
         f.setLongClickable(true);
         f.setTag(it.pkg);
-        final float r = px(16);
+        final float r = px(10);
         f.setOutlineProvider(new ViewOutlineProvider() {
             @Override public void getOutline(View v, Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), r); }
         });
@@ -340,16 +340,16 @@ public class HomeActivity extends Activity {
             LinearLayout in = new LinearLayout(this);
             in.setOrientation(LinearLayout.HORIZONTAL);
             in.setGravity(Gravity.CENTER);
-            in.setPadding(px(18), 0, px(18), 0);
+            in.setPadding(px(10), 0, px(10), 0);
             if (it.icon != null) {
                 ImageView ic = new ImageView(this);
                 ic.setImageDrawable(it.icon);
                 ic.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(px(64), px(64));
-                ip.rightMargin = px(14);
+                LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(px(40), px(40));
+                ip.rightMargin = px(8);
                 in.addView(ic, ip);
             }
-            TextView name = txt(it.label, 30, Color.rgb(29, 29, 29), true);
+            TextView name = txt(it.label, 19, Color.rgb(29, 29, 29), true);
             name.setSingleLine(true);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
             in.addView(name, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -373,8 +373,8 @@ public class HomeActivity extends Activity {
             if (has) lastFocusPkg = it.pkg;
             style(v, has);
         }});
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(320), px(180));
-        lp.rightMargin = px(28);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(192), px(108));
+        lp.rightMargin = px(24);
         f.setLayoutParams(lp);
         return f;
     }
@@ -382,14 +382,14 @@ public class HomeActivity extends Activity {
     private Drawable dim() {
         GradientDrawable d = new GradientDrawable();
         d.setColor(Color.argb(105, 0, 0, 0));
-        d.setCornerRadius(px(16));
+        d.setCornerRadius(px(10));
         return d;
     }
     private Drawable ring(int color) {
         GradientDrawable d = new GradientDrawable();
         d.setColor(Color.TRANSPARENT);
-        d.setStroke(px(4), color);
-        d.setCornerRadius(px(16));
+        d.setStroke(px(3), color);
+        d.setCornerRadius(px(10));
         return d;
     }
 
@@ -477,7 +477,7 @@ public class HomeActivity extends Activity {
         final View vv = v;
         h.post(new Runnable() { public void run() {
             // mantém o app movido à vista
-            int left = vv.getLeft() - px(96), right = vv.getRight() + px(96);
+            int left = vv.getLeft() - px(110), right = vv.getRight() + px(110);
             int sx = scroll.getScrollX(), w = scroll.getWidth();
             if (left < sx) scroll.smoothScrollTo(left, 0);
             else if (right > sx + w) scroll.smoothScrollTo(right - w, 0);
