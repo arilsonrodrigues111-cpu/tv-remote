@@ -109,8 +109,21 @@ public class AgentService extends Service {
             // launcher TechSolutions ligado: confere se continua sendo a tela inicial
             try { Launcher.guard(s, "modo avançado conectou", false); } catch (Throwable ignored) {}
             status("ok", "Modo avançado ativo: controle total liberado");
+            checkRoot();
         }
         s.sendInfo();
+    }
+
+    /** Descobre uma única vez se o aparelho tem root (su), para o painel mostrar a opção "deixar nativo". */
+    static volatile String rootState = "?"; // "?", "sim", "nao"
+    static void checkRoot() {
+        final AgentService s = instance;
+        if (s == null || !AdbShell.isReady()) return;
+        boolean started = AdbShell.get(s).exec("su 0 id 2>&1; echo FIM", new AdbShell.Result() { public void done(String out) {
+            rootState = (out != null && out.contains("uid=0")) ? "sim" : "nao";
+            s.sendInfo();
+        }});
+        if (!started) rootState = "?";
     }
 
     static void sendInfoIfConnected() { if (instance != null) instance.sendInfo(); }
@@ -304,6 +317,7 @@ public class AgentService extends Service {
                     .put("screen", screenW + "x" + screenH)
                     .put("storage", storageInfo())
                     .put("adb", AdbShell.isReady() ? "ativo" : AdbShell.state)
+                    .put("root", rootState)
                     .put("agentVersion", BuildInfo.VERSION);
             Launcher.putInfo(this, info);
             sendJson(new JSONObject().put("type", "info").put("info", info));
@@ -356,6 +370,15 @@ public class AgentService extends Service {
             case "launcherPreview": Launcher.preview(this); status("ok", "Prévia da tela inicial aberta na TV (Voltar sai)"); return;
             case "launcherSet": Launcher.applyPanel(this, m); sendLauncherApps(); return;
             case "pkgAction": pkgAction(m.getString("action"), m.getString("pkg"), m.optBoolean("sys"), m.optString("label", m.getString("pkg"))); return;
+            case "systemApp": {
+                final String spkg = m.getString("pkg"); final boolean rm = m.optBoolean("remove", false); final boolean rb = m.optBoolean("reboot", false);
+                new Thread(new Runnable() { public void run() { doSystemApp(spkg, rm, rb); } }, "sysapp").start();
+                return;
+            }
+            case "reboot":
+                if (AdbShell.isReady()) { status("info", "Reiniciando a TV…"); AdbShell.get(this).run("su 0 sh -c 'svc power reboot || reboot'"); }
+                else status("error", "Precisa do Modo avançado ligado para reiniciar daqui");
+                return;
             case "launch": launch(m.getString("pkg")); return;
             case "uninstall": uninstall(m.getString("pkg")); return;
             case "install": install(m); return;
@@ -830,6 +853,50 @@ public class AgentService extends Service {
      * Mensagem na tela da TV. Antes era um Toast (aviso pequeno de 3 s que muitas TVs escondem quando vem de app em segundo plano).
      * Agora: faixa grande por cima de qualquer app (com o controle ligado), ou tela com botão OK.
      */
+    /** Copia (ou remove) um app na partição do sistema, via root, para ele sobreviver ao reset de fábrica. */
+    private void doSystemApp(final String pkg, final boolean remove, final boolean reboot) {
+        if (!pkg.matches("[A-Za-z0-9._]+")) { status("error", "Nome de pacote inválido"); return; }
+        if (!AdbShell.isReady()) { status("error", "Precisa do Modo avançado ligado para deixar um app nativo"); return; }
+        final String label = appLabel(pkg);
+        final boolean mine = pkg.equals(getPackageName());
+        final String dir = (mine ? "/system/priv-app/TS_" : "/system/app/TS_") + pkg.replace('.', '_');
+        status("info", (remove ? "Tirando " : "Deixando ") + label + (remove ? " do sistema…" : " nativo…"));
+        final String rw = "(mount -o rw,remount / 2>/dev/null || mount -o rw,remount -t ext4 /dev/block/dm-0 / 2>/dev/null || mount -o rw,remount /system 2>/dev/null)";
+        final String ro = "(mount -o ro,remount / 2>/dev/null || mount -o ro,remount /system 2>/dev/null)";
+        String inner;
+        if (remove) {
+            inner = "echo ==ROOT; id; echo ==RW; " + rw + "; rm -rf " + dir + " && echo REMOVIDO; sync; echo ==RO; " + ro + "; echo ==END";
+        } else {
+            inner = "echo ==ROOT; id; "
+                + "A=$(pm path " + pkg + " | sed s/package://); echo ==APKS; echo \"$A\"; "
+                + "echo ==RW; " + rw + "; "
+                + "rm -rf " + dir + "; mkdir -p " + dir + "; "
+                + "for f in $A; do cp \"$f\" " + dir + "/; done; "
+                + "chmod 755 " + dir + "; chmod 644 " + dir + "/*.apk; chown 0:0 " + dir + " " + dir + "/*.apk; "
+                + "echo ==CTX; (restorecon -R " + dir + " 2>/dev/null || chcon u:object_r:system_file:s0 " + dir + "/*.apk 2>&1); "
+                + "echo ==LS; ls -l " + dir + "; sync; echo ==RO; " + ro + "; echo ==END";
+        }
+        final String cmd = "su 0 sh -c '" + inner + "' 2>&1";
+        boolean started = AdbShell.get(this).exec(cmd, new AdbShell.Result() { public void done(String out) {
+            String o = out == null ? "" : out;
+            if (!o.contains("uid=0")) { status("error", "Este aparelho não tem root; não dá para deixar app nativo."); rootState = "nao"; sendInfo(); return; }
+            rootState = "sim";
+            boolean ok = remove ? o.contains("REMOVIDO") : o.contains(".apk");
+            if (ok && reboot) {
+                status("ok", (remove ? label + " deixou de ser nativo" : label + " agora é nativo do sistema") + " ✓. Reiniciando a TV para concluir…");
+                AdbShell.get(AgentService.this).run("su 0 sh -c 'svc power reboot || reboot'");
+            } else if (ok) {
+                status("ok", remove ? label + " não é mais nativo (reinicie a TV para concluir)"
+                        : label + " agora é nativo do sistema ✓ — sobrevive ao reset de fábrica. Reinicie a TV para já valer.");
+            } else {
+                status("error", "Não deu para " + (remove ? "remover do sistema" : "deixar nativo") + " " + label + ": " + Diag.tail(o, 300));
+            }
+            try { sendJson(new JSONObject().put("type", "sysAppResult").put("pkg", pkg).put("remove", remove).put("ok", ok).put("out", Diag.tail(o, 2000))); } catch (Exception ignored) {}
+            sendAllApps();
+        }});
+        if (!started) status("error", "Modo avançado caiu, tente de novo");
+    }
+
     private void showToast(final String text) {
         final RemoteAccessibility acc = RemoteAccessibility.instance;
         new Thread(new Runnable() { public void run() {

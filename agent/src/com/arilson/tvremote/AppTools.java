@@ -97,6 +97,7 @@ final class AppTools {
                 try { String ins = pm.getInstallerPackageName(p); if (ins != null) o.put("from", ins); } catch (Throwable ignored) {}
                 o.put("t", pi.firstInstallTime);
                 if (ai.sourceDir != null) o.put("path", ai.sourceDir.startsWith("/data/") ? "data" : ai.sourceDir.startsWith("/vendor/") || ai.sourceDir.startsWith("/odm/") ? "vendor" : ai.sourceDir.startsWith("/product/") ? "product" : "system");
+                if (ai.sourceDir != null && ai.sourceDir.contains("/TS_")) o.put("tsnative", true);
                 arr.put(o);
             } catch (Throwable ignored) {}
         }

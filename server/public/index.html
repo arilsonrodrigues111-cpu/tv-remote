@@ -1015,6 +1015,7 @@ function appRow(a, cat) {
     a.homeNow ? '<span class="bdg warn">tela inicial</span>' : '', a.imeNow ? '<span class="bdg warn">teclado</span>' : '',
     a.acc ? '<span class="bdg warn">acessibilidade</span>' : '', a.admin ? '<span class="bdg bad">administrador</span>' : '',
     sysPower(a) ? '<span class="bdg bad" title="Roda com permissão total do sistema sem ser do Android/Google">poder de sistema</span>' : '',
+    a.tsnative ? '<span class="bdg ok" title="Copiado para a partição do sistema: continua instalado mesmo depois de um reset de fábrica">nativo ✓</span>' : '',
     a.upd ? '<span class="bdg">atualizado</span>' : '', a.size ? `<span class="bdg">${mb(a.size)}</span>` : ''
   ].join('');
   div.innerHTML = `<div class="l1">${selectable ? '<input type="checkbox">' : '<span style="width:15px"></span>'}<b></b></div><small></small><div class="tags">${tags}</div><div class="acts"></div>`;
@@ -1022,7 +1023,11 @@ function appRow(a, cat) {
   const cb = div.querySelector('input'); if (cb) { cb.checked = appSel.has(a.pkg); cb.onchange = () => { cb.checked ? appSel.add(a.pkg) : appSel.delete(a.pkg); updBulk(); }; }
   const acts = div.querySelector('.acts');
   const btn = (txt, fn, cls) => { const b = document.createElement('button'); b.textContent = txt; if (cls) b.className = cls; b.onclick = fn; acts.appendChild(b); };
-  if (cat === 'me') { acts.innerHTML = '<span class="hint">App de suporte (este).</span>'; return div; }
+  if (cat === 'me') {
+    acts.innerHTML = '<span class="hint">App de suporte (este).</span>';
+    if (hasRoot() && a.inst) { if (a.tsnative) btn('Tirar do sistema', () => sysAppRemove(a), 'danger'); else btn('📌 Deixar nativo', () => sysApp(a)); }
+    return div;
+  }
   if (!a.inst) btn('Restaurar', () => pkgAct(a, 'restore'));
   else if (!a.on) { btn('Ativar de novo', () => pkgAct(a, 'enable')); if (a.sys) btn('Remover', () => pkgAct(a, 'remove'), 'danger'); }
   else if (cat !== 'essential' || showEssential) {
@@ -1031,6 +1036,7 @@ function appRow(a, cat) {
     if (a.admin) btn('Tirar admin', () => pkgAct(a, 'unadmin'));
     btn('Parar', () => pkgAct(a, 'stop'));
   }
+  if (hasRoot() && a.inst) { if (a.tsnative) btn('Tirar do sistema', () => sysAppRemove(a), 'danger'); else if (!a.sys) btn('📌 Deixar nativo', () => sysApp(a)); }
   if (a.inst) btn('Ver na TV', () => pkgAct(a, 'details'));
   return div;
 }
@@ -1045,6 +1051,20 @@ function pkgAct(a, action) {
   if (ask && !confirm(ask)) return;
   if (['disable', 'remove', 'enable', 'restore', 'unadmin'].includes(action) && !allMeta.adb && a.sys) toast('Sem Modo avançado: vou abrir a tela do app na TV para você clicar em Desativar com o controle.', 'info');
   send({ type: 'pkgAction', action, pkg: a.pkg, sys: !!a.sys, label: n });
+}
+function curDev() { return devices.find((x) => x.id === current) || {}; }
+function hasRoot() { return curDev().root === 'sim'; }
+function isNative(a) { return a.path === 'system' || a.path === 'product'; }
+function sysApp(a) {
+  if (!hasRoot()) return toast('Esta TV não tem root, não dá para deixar app nativo.', 'error');
+  if (!confirm(`Deixar “${a.label}” nativo do sistema?\n\nEle passa a ficar na partição do sistema e CONTINUA instalado mesmo se resetar a TV de fábrica. A TV vai reiniciar para concluir.`)) return;
+  send({ type: 'systemApp', pkg: a.pkg, reboot: true });
+  toast('Deixando ' + a.label + ' nativo… a TV vai reiniciar.', 'info');
+}
+function sysAppRemove(a) {
+  if (!confirm(`Tirar “${a.label}” do sistema?\n\nEle deixa de ser nativo (volta a ser um app normal, que some num reset de fábrica). A TV vai reiniciar para concluir.`)) return;
+  send({ type: 'systemApp', pkg: a.pkg, remove: true, reboot: true });
+  toast('Tirando ' + a.label + ' do sistema… a TV vai reiniciar.', 'info');
 }
 function bulk(action) {
   const list = (allApps || []).filter((a) => appSel.has(a.pkg));
@@ -1278,6 +1298,7 @@ function renderAll() {
   if (!allApps) { el.innerHTML = '<span class="hint">Lendo todos os apps da TV…</span>'; return; }
   el.innerHTML = '';
   if (!allMeta.adb) el.insertAdjacentHTML('beforeend', '<div class="warnbox">Sem Modo avançado nesta TV: só dá para desinstalar apps instalados depois. Para desativar ou remover apps de fábrica, ative o Modo avançado (aba Liberar). Sem ele, “Desativar” abre a tela do app na TV para clicar com o controle.</div>');
+  else if (hasRoot()) el.insertAdjacentHTML('beforeend', '<div class="cnote">Esta TV tem root: no botão <b>📌 Deixar nativo</b> o app vai para a partição do sistema e continua instalado mesmo depois de um reset de fábrica (a TV reinicia para concluir).</div>');
   const groups = {};
   for (const a of allApps) {
     if (q && !(a.label || '').toLowerCase().includes(q) && !a.pkg.includes(q)) continue;
