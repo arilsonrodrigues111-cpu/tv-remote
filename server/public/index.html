@@ -585,7 +585,7 @@ function connect() {
       drawTree();
     }
     else if (m.type === 'appIcon') { if (m.icon) { const im = new Image(); im.onload = () => { appIcons[m.pkg] = im; drawTree(); }; im.src = 'data:image/png;base64,' + m.icon; } }
-    else if (m.type === 'allApps') { allApps = m.list || []; allMeta = { me: m.me, adb: m.adb }; if (appMode === 'all' || appMode === 'perf') renderApps(); }
+    else if (m.type === 'allApps') { allApps = m.list || []; allMeta = { me: m.me, adb: m.adb }; if (appMode === 'all' || appMode === 'perf' || appMode === 'tv') renderApps(); }
     else if (m.type === 'ime') onIme(m);
     else if (m.type === 'shellOut' && /^: ts(perf|act);/.test(m.cmd || '')) onPerfShell(m);
     else if (m.type === 'diag' || m.type === 'shellOut') {
@@ -846,6 +846,7 @@ function watch(id) {
   if (appMode === 'perf') setTimeout(() => { if (current === id) { measurePerf(); send({ type: 'allApps' }); } }, 600);
   imeWasOpen = false; imeHide(false);
   if (appMode === 'all') refreshApps();
+  if (appMode === 'tv') setTimeout(() => { if (current === id) { send({ type: 'apps' }); send({ type: 'allApps' }); } }, 600);
   filePath = ''; fileRoot = ''; if ($('filelist')) $('filelist').textContent = 'Clique em Arquivos para abrir.';
   treeNodes = []; if (treeOn) drawTree();
   $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">⏳</div>Conectando na TV…';
@@ -961,7 +962,7 @@ let appMode = 'tv', allApps = null, allMeta = {}, showEssential = false, perf = 
 const appSel = new Set();
 document.querySelectorAll('#appseg button').forEach((b) => b.onclick = () => {
   appMode = b.dataset.m; document.querySelectorAll('#appseg button').forEach((x) => x.classList.toggle('on', x === b));
-  if (appMode === 'all' && !allApps) refreshApps(); else if (appMode === 'tv' && !apps.length) send({ type: 'apps' });
+  if (appMode === 'all' && !allApps) refreshApps(); else if (appMode === 'tv') { if (!apps.length) send({ type: 'apps' }); if (!allApps) send({ type: 'allApps' }); }
   else if (appMode === 'perf') { if (!perf) measurePerf(); if (!allApps) send({ type: 'allApps' }); }
   else if (appMode === 'home') { send({ type: 'launcherApps' }); if (!allApps) send({ type: 'allApps' }); }
   renderApps();
@@ -1330,10 +1331,17 @@ function renderApps() {
   if (!apps.length) { el.innerHTML = '<span class="hint">Clique em ↻ para listar.</span>'; return; }
   el.innerHTML = '';
   for (const a of list) {
+    const meta = (allApps || []).find((x) => x.pkg === a.pkg) || {};
+    const native = meta.tsnative;
+    const nativeBtn = hasRoot() ? (native
+      ? `<button title="Tirar da partição do sistema" class="danger">Tirar do sistema</button>`
+      : `<button title="Deixar na partição do sistema (sobrevive ao reset de fábrica)">📌 Deixar nativo</button>`) : '';
     const row = document.createElement('div'); row.className = 'listrow';
-    row.innerHTML = '<span><b></b><small></small></span><button title="Abrir na TV">▶ Abrir</button><button title="Desinstalar">🗑</button>';
+    row.innerHTML = `<span><b></b><small></small>${native ? '<span class="bdg ok" style="margin-left:6px">nativo ✓</span>' : ''}</span>${nativeBtn}<button title="Abrir na TV">▶ Abrir</button><button title="Desinstalar">🗑</button>`;
     row.querySelector('b').textContent = a.label; row.querySelector('small').textContent = a.pkg + (a.version ? ' · ' + a.version : '');
-    const [bo, bu] = row.querySelectorAll('button');
+    const btns = row.querySelectorAll('button');
+    const bo = btns[btns.length - 2], bu = btns[btns.length - 1];
+    if (nativeBtn) btns[0].onclick = () => native ? sysAppRemove({ pkg: a.pkg, label: a.label }) : sysApp({ pkg: a.pkg, label: a.label });
     bo.onclick = () => send({ type: 'launch', pkg: a.pkg });
     bu.onclick = () => { if (confirm(`Desinstalar ${a.label}?`)) send({ type: 'uninstall', pkg: a.pkg }); };
     el.appendChild(row);
