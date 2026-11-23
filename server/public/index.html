@@ -1224,8 +1224,13 @@ function renderPerf() {
   const recs = (allApps || []).find((a) => a.pkg === 'com.google.android.tvrecommendations' && a.on && a.inst);
   if (recs) tips.push(['', 'Recomendações do Google TV (as fileiras de sugestões da tela inicial) ficam rodando por trás. Dá para desligar sem perder nada importante.', `<button onclick="pkgAct(allApps.find(a=>a.pkg==='com.google.android.tvrecommendations'),'disable')">Desligar recomendações</button>`]);
   const an = r.anim.window_animation_scale;
-  if (an !== '0' && an !== '0.0' && an !== '0.5') tips.push(['', 'As animações estão na velocidade normal. Em box fraco, deixar em 0,5x faz as telas abrirem mais rápido (desligar deixa ainda mais seco).', `<button onclick="perfAct('for k in window_animation_scale transition_animation_scale animator_duration_scale; do settings put global $k 0.5; done','Animações em 0,5x')">Animações 0,5x</button><button onclick="perfAct('for k in window_animation_scale transition_animation_scale animator_duration_scale; do settings put global $k 0; done','Animações desligadas')">Desligar</button>`]);
-  else tips.push(['ok', `Animações já estão em ${an}x.`, `<button onclick="perfAct('for k in window_animation_scale transition_animation_scale animator_duration_scale; do settings put global $k 1; done','Animações no normal')">Voltar ao normal</button>`]);
+  const animPut = (v, msg) => `perfAct('for k in window_animation_scale transition_animation_scale animator_duration_scale; do settings put global $k ${v}; done','${msg}')`;
+  const animOff = `<button onclick="${animPut('0', 'Animações desligadas')}">Desligar</button>`;
+  const animHalf = `<button onclick="${animPut('0.5', 'Animações em 0,5x')}">Deixar em 0,5x</button>`;
+  const animNorm = `<button onclick="${animPut('1', 'Animações no normal')}">Voltar ao normal</button>`;
+  if (an === '0' || an === '0.0') tips.push(['ok', 'Animações desligadas — a interface abre no modo mais rápido.', animNorm]);
+  else if (an === '0.5') tips.push(['', 'Animações em 0,5x. Para deixar ainda mais rápido, dá para desligar de vez.', animOff + animNorm]);
+  else tips.push(['', 'As animações estão na velocidade normal. Em box fraco, desligar faz as telas abrirem na hora (0,5x é um meio-termo mais suave).', animOff + animHalf]);
   if (total && avail / total < 0.3) tips.push(['bad', `Pouca memória livre (${fmtMB(avail)}). Limpar fecha os apps que ficaram abertos por trás.`, `<button onclick="perfAct('am kill-all','Limpando a memória…')">Limpar memória</button>`]);
   else tips.push(['ok', `Memória livre ok (${fmtMB(avail)}). Se travar depois de usar muito, limpe:`, `<button onclick="perfAct('am kill-all','Limpando a memória…')">Limpar memória</button>`]);
   const hog = r.top.find((t) => t.cpu >= 50 && /\./.test(t.name) && t.name !== 'system_server' && pkgInfo(t.name).pkg !== allMeta.me);
