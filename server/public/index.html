@@ -498,7 +498,7 @@
           </div>
           <div class="sec">
             <h3>💬 Mensagem na tela da TV</h3>
-            <div class="row"><input id="toast" class="grow" placeholder="Texto para aparecer na TV"><button onclick="var t=$('toast').value;if(t){send({type:'toast',text:t});$('toast').value=''}">Mostrar</button></div>
+            <div class="row"><input id="toast" class="grow" placeholder="Texto para aparecer na TV" onkeydown="if(event.key==='Enter'){event.preventDefault();sendToast()}"><button onclick="sendToast()">Mostrar</button></div>
           </div>
           <div class="sec">
             <h3>🔗 Abrir link / vídeo na TV</h3>
@@ -657,10 +657,10 @@ function wrapLines(g, t, maxW) {
 function drawText(g, t, X, Y, W, H, o) {
   o = o || {}; const pad = o.pad ?? 4, maxFs = o.maxFs || 34 * (o.scale || 1);
   let fs = Math.min(maxFs, Math.max(8, H * 0.62)), lines;
-  for (; fs > 8; fs -= 1) {
+  for (;; fs -= 1) {
     g.font = (o.bold ? '600 ' : '') + fs + 'px Roboto,system-ui,sans-serif';
     lines = wrapLines(g, t, Math.max(10, W - pad * 2));
-    if (lines.length * fs * 1.22 <= H + 2 && lines.every((l) => g.measureText(l).width <= W - pad * 2 + 1)) break;
+    if (fs <= 8 || (lines.length * fs * 1.22 <= H + 2 && lines.every((l) => g.measureText(l).width <= W - pad * 2 + 1))) break;
   }
   const lh = fs * 1.22, total = lines.length * lh;
   let y = o.top ? Y + pad : Y + (H - total) / 2;
@@ -1367,6 +1367,7 @@ function liveInput(el, active) {
   });
   el.resetLive = () => { last = el.value; };
 }
+function sendToast() { const t = $('toast').value.trim(); if (!t) { toast('Digite a mensagem primeiro'); return; } if (!current) { toast('Escolha uma TV primeiro', 'error'); return; } send({ type: 'toast', text: t }); $('toast').value = ''; toast('Enviando mensagem para a TV…'); }
 function sendText() { const t = $('txt').value; if (t) { send({ type: 'text', text: t }); $('txt').value = ''; } }
 function setQuality() { if (!current) return; const [max, q, fps] = $('qual').value.split(',').map(Number); send({ type: 'quality', max, q, fps }); }
 function log(msg, level = '') {
