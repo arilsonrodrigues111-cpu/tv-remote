@@ -857,6 +857,26 @@ function ago(t) {
   if (!t) return ''; const s = (Date.now() - t) / 1000;
   return s < 90 ? 'agora há pouco' : s < 3600 ? `há ${Math.round(s / 60)} min` : s < 86400 ? `há ${Math.round(s / 3600)} h` : `há ${Math.round(s / 86400)} dias`;
 }
+// há quanto tempo a TV está online (desde que o app conectou no servidor)
+function dur(t) {
+  if (!t) return '';
+  const m = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  if (m < 1) return 'menos de 1 min';
+  if (m < 60) return m + ' min';
+  const h = Math.floor(m / 60), mm = m % 60;
+  if (h < 24) return h + ' h' + (mm ? ' ' + mm + ' min' : '');
+  const d = Math.floor(h / 24), hh = h % 24;
+  return d + (d === 1 ? ' dia' : ' dias') + (hh ? ' ' + hh + ' h' : '');
+}
+function durCurta(t) {
+  if (!t) return '';
+  const m = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  if (m < 60) return m + ' min';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h' + String(m % 60).padStart(2, '0');
+  return Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+}
+function hora(t) { try { return new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } }
 let devFilter = 'all';
 try { devFilter = localStorage.getItem('tvr_devf') || 'all'; } catch {}
 document.querySelectorAll('#devseg button').forEach((b) => {
@@ -874,11 +894,13 @@ function devCard(d) {
       `<span class="bdg ${d.capturing ? 'ok' : 'bad'}" title="Ver a tela">tela ${d.capturing ? '✓' : '✗'}</span>`,
       d.acc === 'travado' ? '<span class="bdg warn" title="O Android desligou o controle por dentro">controle travado</span>'
         : `<span class="bdg ${d.accessibility !== false ? 'ok' : 'bad'}" title="Controle (Acessibilidade)">controle ${d.accessibility !== false ? '✓' : '✗'}</span>`,
-      d.adb === 'ativo' ? '<span class="bdg ok" title="Modo avançado">avançado ✓</span>' : ''
+      d.adb === 'ativo' ? '<span class="bdg ok" title="Modo avançado">avançado ✓</span>' : '',
+      d.since ? `<span class="bdg" title="Online desde ${esc(hora(d.since))}">online ${esc(durCurta(d.since))}</span>` : ''
     ].join('') : `<span class="bdg">offline · ${esc(ago(d.lastSeen))}</span>`}</div></div>`;
   div.onclick = () => { watch(d.id); if (isMobile()) mview('tv'); };
   return div;
 }
+setInterval(() => { try { if (devices.length) renderDevices(); } catch {} }, 60000);
 function renderDevices() {
   const el = $('devs'), q = ($('devq').value || '').toLowerCase().trim();
   const isOn = (d) => d.online !== false;
@@ -910,7 +932,7 @@ function renderHead() {
   $('hNum').innerHTML = `<small>CLIENTE</small>${pad4(d.num)}`;
   $('hNum').style.background = online ? '' : '#3a4560';
   $('devname').textContent = (d.client || 'Sem nome') + '  ✏';
-  $('devsub').innerHTML = `<span class="dot ${online ? 'on' : 'off'}" style="width:8px;height:8px"></span> ${online ? 'Online' : 'Offline ' + esc(ago(d.lastSeen))} · ${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app v' + d.agentVersion].filter(Boolean).join(' · '))}`;
+  $('devsub').innerHTML = `<span class="dot ${online ? 'on' : 'off'}" style="width:8px;height:8px"></span> ${online ? (d.since ? `<span title="Online desde ${esc(hora(d.since))}">Online há ${esc(dur(d.since))}</span>` : 'Online') : 'Offline ' + esc(ago(d.lastSeen))} · ${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app v' + d.agentVersion].filter(Boolean).join(' · '))}`;
   if (!online) { $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">💤</div>Esta TV está desligada ou sem internet.<br><span class="hint">Ela aparece aqui sozinha quando ligar.</span>'; }
   const old = !d.agentVersion || parseFloat(d.agentVersion) < 2.5;
   $('perms').innerHTML = !online ? 'TV offline.' : [
