@@ -328,6 +328,8 @@ public class HomeActivity extends Activity {
     private void fillRow() {
         row.removeAllViews();
         for (int i = 0; i < items.size(); i++) row.addView(tile(items.get(i)));
+        // se o Android escolher sozinho quem fica selecionado, que seja o 1º app (e não a engrenagem)
+        if (android.os.Build.VERSION.SDK_INT >= 26 && row.getChildCount() > 0) row.getChildAt(0).setFocusedByDefault(true);
         if (items.isEmpty()) {
             TextView t = txt("Carregando os apps…", 26, Color.GRAY, false);
             row.addView(t);
@@ -429,8 +431,25 @@ public class HomeActivity extends Activity {
         if (target == null) target = row.getChildAt(0);
         if (!target.isFocusable()) return;
         final View t = target;
-        h.post(new Runnable() { public void run() { t.requestFocus(); } });
+        // requestFocusFromTouch tira a TV do "modo toque": em vários boxes a tela inicial abre nesse modo
+        // e aí nenhum app aparece selecionado (o 1º OK só servia pra fazer o seletor aparecer).
+        h.post(new Runnable() { public void run() { if (!t.requestFocusFromTouch()) t.requestFocus(); } });
     }
+
+    @Override public void onWindowFocusChanged(boolean has) {
+        super.onWindowFocusChanged(has);
+        // a janela só recebe o foco de verdade um pouco depois de abrir (no boot, às vezes bem depois)
+        if (has && moving < 0) {
+            View f = getCurrentFocus();
+            if (f == null || f.getParent() != row) focusLast();
+        }
+    }
+
+    private static boolean isOk(int c) {
+        return c == KeyEvent.KEYCODE_DPAD_CENTER || c == KeyEvent.KEYCODE_ENTER
+                || c == KeyEvent.KEYCODE_NUMPAD_ENTER || c == KeyEvent.KEYCODE_BUTTON_A;
+    }
+    private boolean okSemSeletor = false;
 
     private void open(AppItem it) {
         try {
@@ -509,6 +528,28 @@ public class HomeActivity extends Activity {
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        // Garantia: se nada estiver selecionado (modo toque), OK já abre o 1º app e as setas
+        // começam no 1º app, em vez de gastar o 1º aperto só pra mostrar o seletor.
+        if (moving < 0 && row != null && !items.isEmpty() && getCurrentFocus() == null) {
+            int c = e.getKeyCode();
+            if (isOk(c)) {
+                if (e.getAction() == KeyEvent.ACTION_DOWN) { okSemSeletor = true; return true; }
+                if (e.getAction() == KeyEvent.ACTION_UP && okSemSeletor) {
+                    okSemSeletor = false;
+                    View first = row.getChildAt(0);
+                    if (first != null && !first.requestFocusFromTouch()) first.requestFocus();
+                    open(items.get(0));
+                    return true;
+                }
+            }
+            if (e.getAction() == KeyEvent.ACTION_DOWN && (c == KeyEvent.KEYCODE_DPAD_LEFT || c == KeyEvent.KEYCODE_DPAD_RIGHT
+                    || c == KeyEvent.KEYCODE_DPAD_UP || c == KeyEvent.KEYCODE_DPAD_DOWN)) {
+                lastFocusPkg = null;
+                focusLast();
+                return true;
+            }
+        }
+        if (e.getAction() == KeyEvent.ACTION_UP && isOk(e.getKeyCode())) okSemSeletor = false;
         if (moving >= 0) {
             int c = e.getKeyCode();
             if (e.getAction() == KeyEvent.ACTION_DOWN) {
