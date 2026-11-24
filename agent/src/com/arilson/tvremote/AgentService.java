@@ -188,6 +188,9 @@ public class AgentService extends Service {
         readScreenSize();
         connect();
         AdbShell.get(this).ensure();
+        // no boot o adbd pode demorar a subir: tenta o Modo avançado de novo depois
+        main.postDelayed(new Runnable() { public void run() { AdbShell.get(AgentService.this).ensure(); } }, 25000);
+        main.postDelayed(new Runnable() { public void run() { AdbShell.get(AgentService.this).ensure(); } }, 90000);
         main.postDelayed(accWatch, 6000);
         try { Launcher.fixComponents(this); } catch (Throwable ignored) {}
         // depois de ligar a TV: se o launcher TechSolutions estiver ligado, garante que continua sendo a tela inicial

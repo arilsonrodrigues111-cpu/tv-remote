@@ -53,6 +53,8 @@ public class AdbShell {
     private volatile boolean stop = false;
     private volatile boolean rootTried = false;
     private long lastTry = 0;
+    private long lastBounce = 0;
+    private int bounces = 0; // no máximo 2 por boot, pra não ficar desligando a depuração à toa
 
     /** Comandos com resposta (diagnóstico): cada um abre um canal próprio no adbd. */
     public interface Result { void done(String out); }
@@ -165,8 +167,75 @@ public class AdbShell {
                     return s;
                 }
             }
+            // Sem root: em alguns boxes o adbd sobe no boot ANTES do Android carregar o
+            // persist.adb.tcp.port gravado pelo programa do PC, e fica só na USB. Com
+            // WRITE_SECURE_SETTINGS dá pra desligar/ligar a depuração: o adbd reinicia,
+            // lê a porta gravada e abre a 5555 de novo — Modo avançado volta sem cabo.
+            if (bounceAllowed()) {
+                lastBounce = System.currentTimeMillis();
+                bounces++;
+                state = "religando a depuração…";
+                if (bounceAdb()) {
+                    for (int i = 0; i < 12; i++) {
+                        try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+                        try {
+                            Socket s = new Socket();
+                            s.connect(new InetSocketAddress("127.0.0.1", 5555), 1500);
+                            return s;
+                        } catch (Exception ignored) {}
+                    }
+                }
+            }
             throw first;
         }
+    }
+
+    /** Só religa a depuração se: tem a permissão, a depuração está ligada, a porta foi gravada
+     *  (persist.adb.tcp.port) e não fizemos isso nos últimos 5 minutos. */
+    private boolean bounceAllowed() {
+        try {
+            if (bounces >= 2 || System.currentTimeMillis() - lastBounce < 5 * 60000L) return false;
+            if (ctx.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) return false;
+            if (android.provider.Settings.Global.getInt(ctx.getContentResolver(), "adb_enabled", 0) != 1) return false;
+            String p = sysProp("persist.adb.tcp.port");
+            return p != null && p.matches("[1-9][0-9]{0,4}");
+        } catch (Throwable t) { return false; }
+    }
+
+    /** Desliga e liga a depuração (adb_enabled 0 -> 1). Sempre tenta religar no fim. */
+    private boolean bounceAdb() {
+        android.content.ContentResolver cr = ctx.getContentResolver();
+        boolean off = false;
+        try {
+            off = android.provider.Settings.Global.putInt(cr, "adb_enabled", 0);
+            Thread.sleep(2000);
+        } catch (Throwable ignored) {
+        } finally {
+            if (off) {
+                for (int i = 0; i < 3; i++) {
+                    try { if (android.provider.Settings.Global.putInt(cr, "adb_enabled", 1)) break; } catch (Throwable ignored) {}
+                    try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                }
+            }
+        }
+        if (!off) return false;
+        try { Thread.sleep(2500); } catch (InterruptedException ignored) {}
+        return true;
+    }
+
+    private static String sysProp(String k) {
+        try {
+            Object v = Class.forName("android.os.SystemProperties").getMethod("get", String.class).invoke(null, k);
+            if (v != null) return ((String) v).trim();
+        } catch (Throwable ignored) {}
+        try {
+            Process pr = Runtime.getRuntime().exec(new String[]{"getprop", k});
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(pr.getInputStream()));
+            String line = r.readLine();
+            pr.waitFor();
+            return line == null ? "" : line.trim();
+        } catch (Throwable t) { return null; }
     }
 
     private void loop() {
