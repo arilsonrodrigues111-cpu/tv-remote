@@ -79,6 +79,8 @@ final class Launcher {
     }
 
     static List<String> order(Context c) { return new ArrayList<>(csv(sp(c).getString("launcher_order", ""))); }
+    /** App fixado pelo suporte no 1º lugar ("" = nenhum). O cliente não consegue tirar ele de lá. */
+    static String pinned(Context c) { return sp(c).getString("launcher_pin", ""); }
     static void saveOrder(Context c, List<String> pkgs) { sp(c).edit().putString("launcher_order", join(pkgs)).apply(); }
 
     private static LinkedHashSet<String> csv(String s) {
@@ -333,12 +335,14 @@ final class Launcher {
         Set<String> hide = hidden(c);
         JSONArray arr = new JSONArray();
         for (HomeActivity.AppItem it : shownApps) {
-            arr.put(new JSONObject().put("pkg", it.pkg).put("label", it.label).put("hidden", hide.contains(it.pkg)).put("banner", it.banner != null));
+            boolean pin = it.pkg.equals(pinned(c));
+            arr.put(new JSONObject().put("pkg", it.pkg).put("label", it.label).put("hidden", hide.contains(it.pkg) && !pin)
+                    .put("banner", it.banner != null).put("pinned", pin));
         }
-        return new JSONObject().put("type", "launcherApps").put("list", arr).put("on", on(c));
+        return new JSONObject().put("type", "launcherApps").put("list", arr).put("on", on(c)).put("pin", pinned(c));
     }
 
-    /** order = pacotes na ordem nova; hide/show = mudar o que aparece. */
+    /** order = pacotes na ordem nova; hide/show = mudar o que aparece; pin = fixar no 1º lugar ("" solta). */
     static void applyPanel(Context c, JSONObject m) {
         SharedPreferences.Editor ed = sp(c).edit();
         JSONArray o = m.optJSONArray("order");
@@ -350,6 +354,7 @@ final class Launcher {
             if (!sh.isEmpty()) { S.add(sh); H.remove(sh); }
             ed.putString("launcher_hide", join(H)).putString("launcher_show", join(S));
         }
+        if (m.has("pin")) ed.putString("launcher_pin", m.optString("pin", "").trim());
         ed.apply();
         HomeActivity.clearCache();
         refreshHome();

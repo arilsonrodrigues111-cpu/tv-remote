@@ -1120,10 +1120,21 @@ function launcherStock(disable) {
 }
 function launcherMove(i, d) {
   const l = launcherApps.slice(); const j = i + d; if (j < 0 || j >= l.length) return;
+  if (l[i].pinned || l[j].pinned) return; // o fixado fica sempre em 1º
   [l[i], l[j]] = [l[j], l[i]]; launcherApps = l; renderApps();
   send({ type: 'launcherSet', order: l.map((x) => x.pkg) });
 }
 function launcherHide(pkg, hide) { send({ type: 'launcherSet', [hide ? 'hide' : 'show']: pkg }); }
+function launcherPin(pkg) {
+  // fixa (ou solta, com pkg vazio) um app no 1º lugar da tela inicial
+  if (launcherApps) {
+    launcherApps = launcherApps.map((x) => ({ ...x, pinned: !!pkg && x.pkg === pkg }));
+    const i = launcherApps.findIndex((x) => x.pinned); if (i > 0) launcherApps.unshift(launcherApps.splice(i, 1)[0]);
+    renderApps();
+  }
+  send({ type: 'launcherSet', pin: pkg || '' });
+  toast(pkg ? 'App fixado em 1º lugar na TV' : 'App solto: o cliente pode mudar de lugar de novo', 'ok');
+}
 function renderHome() {
   const el = $('applist'); el.innerHTML = '';
   if ($('appqrow')) $('appqrow').style.display = 'none';
@@ -1153,17 +1164,21 @@ function renderHome() {
   box.innerHTML = h; el.appendChild(box);
 
   const list = document.createElement('div'); list.className = 'sec';
-  list.innerHTML = '<h3>Apps na tela inicial</h3><div class="hint" style="margin-bottom:6px">A ordem aqui é a da TV (da esquerda para a direita). O cliente também pode mudar segurando OK num app.</div>';
+  list.innerHTML = '<h3>Apps na tela inicial</h3><div class="hint" style="margin-bottom:6px">A ordem aqui é a da TV (da esquerda para a direita). Ao ligar a TV, o seletor já fica no 1º app. O cliente pode mudar a ordem segurando OK num app, menos o app <b>fixado</b>.</div>';
   if (!launcherApps) list.insertAdjacentHTML('beforeend', '<span class="hint">Carregando…</span>');
   else {
     let n = 0;
     launcherApps.forEach((a, i) => {
       const r = document.createElement('div'); r.className = 'lrow' + (a.hidden ? ' off' : '');
-      r.innerHTML = `<span class="n">${a.hidden ? '' : ++n}</span><b></b><button title="Mais para a esquerda">▲</button><button title="Mais para a direita">▼</button><button>${a.hidden ? 'Mostrar' : 'Esconder'}</button>`;
+      const pinOn = launcherApps.some((x) => x.pinned);
+      r.innerHTML = `<span class="n">${a.hidden ? '' : ++n}</span><b></b>${a.pinned ? '<span class="bdg ok" title="O cliente não consegue mudar de lugar">fixado em 1º</span>' : ''}<button title="Mais para a esquerda">▲</button><button title="Mais para a direita">▼</button><button>${a.hidden ? 'Mostrar' : 'Esconder'}</button><button title="${a.pinned ? 'Deixar o cliente mudar este app de lugar' : 'Deixar este app sempre em 1º lugar, sem o cliente poder mudar'}">${a.pinned ? 'Soltar' : 'Fixar em 1º'}</button>`;
       r.querySelector('b').textContent = a.label; r.querySelector('b').title = a.pkg;
-      const [up, dn, hd] = r.querySelectorAll('button');
+      const [up, dn, hd, pn] = r.querySelectorAll('button');
       up.onclick = () => launcherMove(i, -1); dn.onclick = () => launcherMove(i, 1); hd.onclick = () => launcherHide(a.pkg, !a.hidden);
-      if (a.hidden) { up.disabled = dn.disabled = true; }
+      pn.onclick = () => launcherPin(a.pinned ? '' : a.pkg);
+      if (a.hidden) { up.disabled = dn.disabled = true; pn.disabled = true; }
+      if (a.pinned) { up.disabled = dn.disabled = hd.disabled = true; }
+      if (pinOn && i === 1) up.disabled = true;
       list.appendChild(r);
     });
   }

@@ -60,6 +60,7 @@ public class HomeActivity extends Activity {
     private final Handler h = new Handler(Looper.getMainLooper());
     private int moving = -1;        // índice do app sendo movido (-1 = nenhum)
     private String lastFocusPkg = null;
+    private boolean startFresh = true; // TV ligou / voltou de um app / casinha: seletor no 1º app
 
     static final class AppItem {
         String pkg, label; Drawable banner, icon; Intent launch;
@@ -91,8 +92,20 @@ public class HomeActivity extends Activity {
         super.onDestroy();
     }
 
+    @Override protected void onStart() {
+        super.onStart();
+        // onStart = a tela inicial voltou a aparecer de verdade (ligou a TV, saiu de um app,
+        // acordou do descanso). Janelinhas por cima (mensagem, permissão) não passam por aqui.
+        startFresh = true;
+    }
+
     @Override protected void onResume() {
         super.onResume();
+        if (startFresh) {
+            startFresh = false;
+            lastFocusPkg = null;
+            if (scroll != null) scroll.scrollTo(0, 0);
+        }
         tick();
         IntentFilter tf = new IntentFilter(Intent.ACTION_TIME_TICK);
         tf.addAction(Intent.ACTION_TIME_CHANGED); tf.addAction(Intent.ACTION_TIMEZONE_CHANGED);
@@ -256,12 +269,13 @@ public class HomeActivity extends Activity {
         }
         java.util.Set<String> hide = Launcher.hidden(c);
         List<String> order = Launcher.order(c);
+        final String pin = Launcher.pinned(c);
         List<AppItem> out = new ArrayList<>();
         List<AppItem> fresh = new ArrayList<>();
         Map<String, AppItem> byPkg = new HashMap<>();
         for (Map.Entry<String, ResolveInfo> e : found.entrySet()) {
             String p = e.getKey();
-            if (!all && hide.contains(p)) continue;
+            if (!all && hide.contains(p) && !p.equals(pin)) continue;
             ResolveInfo r = e.getValue();
             ActivityInfo ai = r.activityInfo;
             AppItem it = new AppItem();
@@ -288,6 +302,10 @@ public class HomeActivity extends Activity {
             }
         });
         out.addAll(fresh);
+        // app fixado pelo suporte: sempre o 1º da fileira
+        if (!pin.isEmpty()) for (int i = 0; i < out.size(); i++) {
+            if (out.get(i).pkg.equals(pin)) { if (i > 0) out.add(0, out.remove(i)); break; }
+        }
         if (!fresh.isEmpty() && !all) Launcher.saveOrder(c, pkgs(out));
         return out;
     }
@@ -430,11 +448,15 @@ public class HomeActivity extends Activity {
     }
 
     // ---------------- mudar a ordem ----------------
+    private boolean isPinned(AppItem it) { return it != null && it.pkg.equals(Launcher.pinned(this)); }
+
     private void menu(final AppItem it, final View v) {
-        final String[] opts = {"Mover", "Abrir", "Cancelar"};
+        final boolean fixo = isPinned(it);
+        final String[] opts = fixo ? new String[]{"Abrir", "Cancelar"} : new String[]{"Mover", "Abrir", "Cancelar"};
         AlertDialog d = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(it.label)
+                .setTitle(fixo ? it.label + "  (fixado em 1º pelo suporte)" : it.label)
                 .setItems(opts, new DialogInterface.OnClickListener() { public void onClick(DialogInterface di, int w) {
+                    if (fixo) { if (w == 0) open(it); return; }
                     if (w == 0) startMove(it);
                     else if (w == 1) open(it);
                 }}).create();
@@ -442,6 +464,7 @@ public class HomeActivity extends Activity {
     }
 
     private void startMove(AppItem it) {
+        if (isPinned(it)) return;
         moving = items.indexOf(it);
         if (moving < 0) return;
         hint.setText("Movendo " + it.label + "  ·  use as setas para levar até onde quiser  ·  OK para soltar");
@@ -466,6 +489,7 @@ public class HomeActivity extends Activity {
     private void moveBy(int d) {
         int to = moving + d;
         if (to < 0 || to >= items.size()) return;
+        if (to == 0 && !items.isEmpty() && isPinned(items.get(0))) return; // o 1º lugar é do app fixado
         AppItem it = items.remove(moving);
         items.add(to, it);
         View v = row.getChildAt(moving);
