@@ -20,7 +20,7 @@ public final class Config { public static final String DEFAULT_SERVER = "$(esc "
 J
 cat > $OUT/gen/com/arilson/tvremote/BuildInfo.java <<J
 package com.arilson.tvremote;
-public final class BuildInfo { public static final String VERSION = "$(esc "$VERSION")"; }
+public final class BuildInfo { public static final String VERSION = "$(esc "$VERSION")"; public static final int CODE = $VCODE; }
 J
 cp -r res/* $OUT/res/
 python3 - "$APP_NAME" <<'PY'

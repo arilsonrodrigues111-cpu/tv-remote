@@ -916,7 +916,7 @@ function devCard(d) {
   div.className = 'dev' + (d.id === current ? ' sel' : '') + (online ? '' : ' offline');
   div.innerHTML = `<div class="num"><small>CLIENTE</small>${pad4(d.num)}</div>
     <div class="info"><div class="name"><span class="dot ${online ? 'on' : 'off'}"></span><span class="grow" style="overflow:hidden;text-overflow:ellipsis">${esc(d.client || 'Sem nome')}</span><button class="devdel" title="Apagar cliente">🗑</button></div>
-    <div class="sub">${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'v' + d.agentVersion].filter(Boolean).join(' · '))}</div>
+    <div class="sub">${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'v' + d.agentVersion + (d.build ? '.' + d.build : '')].filter(Boolean).join(' · '))}</div>
     <div class="badges">${online ? [
       `<span class="bdg ${d.capturing ? 'ok' : 'bad'}" title="Ver a tela">tela ${d.capturing ? '✓' : '✗'}</span>`,
       d.acc === 'travado' ? '<span class="bdg warn" title="O Android desligou o controle por dentro">controle travado</span>'
@@ -935,6 +935,23 @@ function devCard(d) {
   return div;
 }
 let pendingDel = null, pendingDelT = null;
+// ---------- Google TV: Modo somente apps ----------
+const isGoogleTv = (d) => (d.stockHomes || []).includes('com.google.android.apps.tv.launcherx') || d.home === 'com.google.android.apps.tv.launcherx' || (d.stockOff || []).includes('com.google.android.apps.tv.launcherx');
+function appsOnly(on) {
+  const d = devices.find((x) => x.id === current); if (!d) return;
+  if (!on && !confirm('Desligar o Modo somente apps nesta TV? As recomendações e anúncios do Google voltam para a tela inicial.')) return;
+  send({ type: 'appsOnly', on });
+  toast((on ? 'Ligando' : 'Desligando') + ' o Modo somente apps (a TV abre as Configurações por uns segundos)…');
+}
+function appsOnlyAll() {
+  const all = devices.filter((x) => x.online !== false && isGoogleTv(x));
+  const ok = all.filter((x) => (x.build || 0) >= 25 && x.accessibility !== false);
+  const skip = all.length - ok.length;
+  if (!ok.length) return toast(all.length ? 'Nenhuma Google TV online com o app atualizado e o controle ligado' : 'Nenhuma Google TV online agora', 'error');
+  if (!confirm(`Ligar o Modo somente apps em ${ok.length} Google TV${ok.length > 1 ? 's' : ''} online?\nCada TV abre as Configurações por uns segundos e volta para a tela inicial.` + (skip ? `\n(${skip} sem o app atualizado ou sem controle ficam de fora)` : ''))) return;
+  ok.forEach((x, i) => setTimeout(() => ws.send(JSON.stringify({ type: 'cmd', id: x.id, cmd: { type: 'appsOnly', on: true } })), i * 400));
+  toast(`Mandei ligar em ${ok.length} TV${ok.length > 1 ? 's' : ''}. O resultado aparece no Log.`, 'ok');
+}
 function deleteClient(d) {
   ws.send(JSON.stringify({ type: 'deleteClient', id: d.id }));
   if (current === d.id) {
@@ -974,7 +991,7 @@ function renderHead() {
   $('hNum').innerHTML = `<small>CLIENTE</small>${pad4(d.num)}`;
   $('hNum').style.background = online ? '' : '#3a4560';
   $('devname').textContent = (d.client || 'Sem nome') + '  ✏';
-  $('devsub').innerHTML = `<span class="dot ${online ? 'on' : 'off'}" style="width:8px;height:8px"></span> ${online ? (d.since ? `<span title="Online desde ${esc(hora(d.since))}">Online há ${esc(dur(d.since))}</span>` : 'Online') : 'Offline ' + esc(ago(d.lastSeen))} · ${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app v' + d.agentVersion].filter(Boolean).join(' · '))}`;
+  $('devsub').innerHTML = `<span class="dot ${online ? 'on' : 'off'}" style="width:8px;height:8px"></span> ${online ? (d.since ? `<span title="Online desde ${esc(hora(d.since))}">Online há ${esc(dur(d.since))}</span>` : 'Online') : 'Offline ' + esc(ago(d.lastSeen))} · ${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'app v' + d.agentVersion + (d.build ? '.' + d.build : '')].filter(Boolean).join(' · '))}`;
   if (!online) { $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">💤</div>Esta TV está desligada ou sem internet.<br><span class="hint">Ela aparece aqui sozinha quando ligar.</span>'; }
   const old = !d.agentVersion || parseFloat(d.agentVersion) < 2.5;
   $('perms').innerHTML = !online ? 'TV offline.' : [
@@ -985,7 +1002,7 @@ function renderHead() {
     permRow(d.adb === 'ativo', 'Modo avançado', esc(d.adb === 'ativo' ? 'Ativo' : (d.adb || 'precisa app 1.4+')), 'Testar', "send({type:'adbConnect'})"),
   ].join('');
   $('adbstate').innerHTML = 'Situação: <b>' + esc(d.adb || 'precisa atualizar o app') + '</b>';
-  $('verinfo').innerHTML = `Versão na TV: <b>${esc(d.agentVersion || '?')}</b>` + (old ? ' · <span style="color:var(--warn)">tem versão nova</span>' : '');
+  $('verinfo').innerHTML = `Versão na TV: <b>${esc((d.agentVersion || '?') + (d.build ? '.' + d.build : ''))}</b>` + (old ? ' · <span style="color:var(--warn)">tem versão nova</span>' : '');
   $('devinfo').innerHTML = [
     '<b>' + esc(d.model || d.name) + '</b>', d.android && 'Android ' + esc(d.android), d.screen && 'Tela ' + esc(d.screen),
     d.storage && 'Armazenamento: ' + esc(d.storage), 'App versão ' + esc(d.agentVersion || '?'), d.ip && 'IP: ' + esc(d.ip),
@@ -1187,6 +1204,19 @@ function renderHome() {
   if (!d) return;
   if (!(parseFloat(d.agentVersion) >= 2.5)) { el.innerHTML = '<div class="warnbox">Para usar a tela inicial TechSolutions, atualize o app desta TV para a versão 2.5 (Mais › Atualizar o app da TV).</div>'; return; }
   const adb = d.adb === 'ativo', on = !!d.launcher, off = d.stockOff || [], stock = d.stockHomes || [];
+  if (isGoogleTv(d)) {
+    const g = document.createElement('div'); g.className = 'sec';
+    const nAll = devices.filter((x) => x.online !== false && isGoogleTv(x)).length;
+    g.innerHTML = `<h3>Google TV: Modo somente apps</h3>
+      <div class="hint" style="margin-bottom:8px">Tira da tela inicial do Google as recomendações de filmes e séries e a maior parte dos anúncios (fica só a fileira de apps). O app da TV faz os cliques sozinho nas Configurações, não precisa do Modo avançado. Some também a lista de interesses do Google.</div>
+      ${(d.build || 0) < 25 ? '<div class="warnbox">Precisa do app da TV atualizado (Mais › Atualizar o app da TV).</div>' : ''}
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <button class="pri" onclick="appsOnly(true)">Ligar nesta TV</button>
+        <button onclick="appsOnly(false)">Desligar nesta TV</button>
+        <button onclick="appsOnlyAll()" title="Manda ligar em todas as Google TVs que estão online agora">Ligar em todas as Google TVs online (${nAll})</button>
+      </div>`;
+    el.appendChild(g);
+  }
   const box = document.createElement('div'); box.className = 'sec';
   let h = `<h3>🏠 Tela inicial TechSolutions</h3>
     <div style="font-size:12.5px;margin-bottom:8px">Agora a TV abre: <b>${esc(d.home === allMeta.me || (d.home || '').startsWith('com.arilson') ? 'TechSolutions' : homeLabel(d.home))}</b></div>`;

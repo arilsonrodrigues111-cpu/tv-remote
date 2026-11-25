@@ -323,7 +323,7 @@ public class AgentService extends Service {
                     .put("storage", storageInfo())
                     .put("adb", AdbShell.isReady() ? "ativo" : AdbShell.state)
                     .put("root", rootState)
-                    .put("agentVersion", BuildInfo.VERSION);
+                    .put("agentVersion", BuildInfo.VERSION).put("build", BuildInfo.CODE);
             Launcher.putInfo(this, info);
             sendJson(new JSONObject().put("type", "info").put("info", info));
         } catch (Exception ignored) {}
@@ -388,6 +388,15 @@ public class AgentService extends Service {
             case "uninstall": uninstall(m.getString("pkg")); return;
             case "install": install(m); return;
             case "installStreaming": installStreaming(); return;
+            case "appsOnly": {
+                final boolean want = m.optBoolean("on", true);
+                if (!RemoteAccessibility.enabled()) { status("error", "Modo somente apps: precisa do controle ligado nesta TV"); return; }
+                status("info", (want ? "Ligando" : "Desligando") + " o Modo somente apps na TV…");
+                RemoteAccessibility.appsOnlyMode(this, want, new RemoteAccessibility.Result() { public void done(boolean ok, String msg) {
+                    status(ok ? "ok" : "error", "Modo somente apps: " + msg);
+                }});
+                return;
+            }
             case "files": Files.list(this, m.optString("path", "")); return;
             case "mkdir": Files.mkdir(this, m.getString("path")); return;
             case "deleteFile": Files.delete(this, m.getString("path")); return;

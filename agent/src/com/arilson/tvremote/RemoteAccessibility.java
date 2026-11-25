@@ -179,6 +179,157 @@ public class RemoteAccessibility extends AccessibilityService {
         return x.contains("settings") || x.contains("permissioncontroller") || x.contains("packageinstaller");
     }
 
+    // ---------- Google TV: "Modo somente apps" (Configurações › Contas e login › conta › Modo somente apps) ----------
+    interface Result { void done(boolean ok, String msg); }
+    private static int aoStep, aoTries;
+    private static boolean aoWant;
+    private static long aoUntil;
+    private static Result aoCb;
+    private static final String[] AO_ACCOUNTS = { "contas e login", "accounts & sign-in", "accounts and sign-in", "accounts & sign in", "cuentas y acceso", "contas e acesso" };
+    private static final String[] AO_ITEM = { "modo somente apps", "apps only mode", "apps-only mode", "modo solo aplicaciones", "modo solo apps" };
+    private static final String[] AO_ON = { "ativado", "on", "activado", "ligado" };
+    private static final String[] AO_OFF = { "desativado", "off", "desactivado", "desligado" };
+    private static final String[] AO_CONFIRM = { "ativar", "turn on", "activar", "ligar", "continuar", "continue" };
+
+    /** Liga/desliga o Modo somente apps do Google TV pelas telas de Configurações (sem ADB). */
+    static void appsOnlyMode(Context c, boolean want, Result cb) {
+        if (instance == null) { cb.done(false, "precisa do controle ligado"); return; }
+        wh.removeCallbacks(aoTick);
+        aoWant = want; aoCb = cb; aoStep = 1; aoTries = 0;
+        aoUntil = System.currentTimeMillis() + 50000;
+        startActivityAny(c, new Intent(android.provider.Settings.ACTION_SETTINGS));
+        wh.postDelayed(aoTick, 2200);
+    }
+    private static void aoEnd(boolean ok, String msg) {
+        wh.removeCallbacks(aoTick);
+        Result cb = aoCb; aoCb = null; aoStep = 0;
+        Diag.event("modo somente apps: " + msg);
+        final RemoteAccessibility s = instance;
+        if (s != null) wh.postDelayed(new Runnable() { public void run() { s.performGlobalAction(GLOBAL_ACTION_HOME); } }, 600);
+        if (cb != null) try { cb.done(ok, msg); } catch (Throwable ignored) {}
+    }
+    private static void aoNext(int step, long delay) { aoStep = step; aoTries = 0; wh.postDelayed(aoTick, delay); }
+    private static final Runnable aoTick = new Runnable() { public void run() {
+        RemoteAccessibility s = instance;
+        if (aoStep == 0) return;
+        if (s == null) { aoEnd(false, "o controle caiu no meio"); return; }
+        if (System.currentTimeMillis() > aoUntil) { aoEnd(false, aoFail()); return; }
+        try { s.aoRun(); } catch (Throwable t) { aoTries++; wh.postDelayed(this, 800); }
+    }};
+    private static String aoFail() {
+        switch (aoStep) {
+            case 1: return "não achei “Contas e login” nas Configurações (esta TV não é Google TV?)";
+            case 2: return "não achei a conta Google em Contas e login (TV sem conta?)";
+            case 3: case 4: return "não achei “Modo somente apps” na conta (esta TV/versão não tem essa opção)";
+            case 5: return "a confirmação “Ativar” não apareceu";
+            default: return "não consegui confirmar se mudou; confira na TV";
+        }
+    }
+    private void aoRun() {
+        List<AccessibilityNodeInfo> all = aoNodes();
+        AccessibilityNodeInfo n;
+        switch (aoStep) {
+            case 1:
+                n = findText(all, AO_ACCOUNTS, false);
+                if (n != null && clickRow(n)) { aoNext(2, 1800); return; }
+                break;
+            case 2: {
+                AccessibilityNodeInfo mail = null;
+                for (AccessibilityNodeInfo x : all) {
+                    CharSequence t = x.getText();
+                    if (t != null && x.isVisibleToUser() && t.toString().matches("(?s)\\s*[^\\s@,]+@[^\\s@,]+\\.[^\\s@,]+\\s*")) { mail = x; break; }
+                }
+                if (mail != null && clickRow(mail)) { aoNext(3, 1800); return; }
+                break;
+            }
+            case 3:
+                n = findText(all, AO_ITEM, true);
+                if (n != null) {
+                    AccessibilityNodeInfo row = clickable(n);
+                    if (row != null) { row.performAction(AccessibilityNodeInfo.ACTION_FOCUS); aoNext(4, 1000); return; }
+                }
+                if (aoTries % 2 == 1) scrollAny(all);
+                break;
+            case 4: {
+                int state = aoState(all);
+                if (state != 0) {
+                    boolean isOn = state > 0;
+                    if (isOn == aoWant) { aoEnd(true, isOn ? "já estava ligado ✓" : "já estava desligado ✓"); return; }
+                    n = findText(all, AO_ITEM, true);
+                    AccessibilityNodeInfo row = n == null ? null : clickable(n);
+                    if (row != null && row.performAction(AccessibilityNodeInfo.ACTION_CLICK)) { aoNext(aoWant ? 5 : 6, 1800); return; }
+                } else if (aoTries >= 3) { aoNext(3, 300); return; } // foco não foi pra linha: tenta de novo
+                break;
+            }
+            case 5:
+                n = findText(all, AO_CONFIRM, false);
+                if (n != null && clickRow(n)) { aoNext(6, 2500); return; }
+                // pode já ter voltado direto para a tela da conta (sem confirmação)
+                if (aoTries >= 3 && aoState(all) > 0) { aoEnd(true, "ligado ✓"); return; }
+                break;
+            case 6: {
+                int state = aoState(all);
+                if (state != 0 && (state > 0) == aoWant) { aoEnd(true, aoWant ? "ligado ✓" : "desligado ✓"); return; }
+                if (aoTries == 2 || aoTries == 5) { n = findText(all, AO_ITEM, true); AccessibilityNodeInfo row = n == null ? null : clickable(n); if (row != null) row.performAction(AccessibilityNodeInfo.ACTION_FOCUS); }
+                break;
+            }
+        }
+        aoTries++;
+        wh.postDelayed(aoTick, 800);
+    }
+    /** 1 = ligado, -1 = desligado, 0 = não sei (o quadro da direita mostra o estado do item focado). */
+    private static int aoState(List<AccessibilityNodeInfo> all) {
+        int titles = 0; boolean on = false, off = false;
+        for (AccessibilityNodeInfo x : all) {
+            String t = txt(x);
+            for (String w : AO_ITEM) if (t.equals(w)) titles++;
+            for (String w : AO_ON) if (t.equals(w)) on = true;
+            for (String w : AO_OFF) if (t.equals(w)) off = true;
+        }
+        if (titles < 2 || on == off) return 0; // título só aparece 2x quando o item está focado (linha + quadro da direita)
+        return on ? 1 : -1;
+    }
+    private List<AccessibilityNodeInfo> aoNodes() {
+        List<AccessibilityNodeInfo> all = new ArrayList<>();
+        List<AccessibilityNodeInfo> roots = new ArrayList<>();
+        AccessibilityNodeInfo a = getRootInActiveWindow();
+        if (a != null) roots.add(a);
+        try { for (AccessibilityWindowInfo w : getWindows()) { AccessibilityNodeInfo r = w.getRoot(); if (r != null && (a == null || !r.equals(a))) roots.add(r); } } catch (Exception ignored) {}
+        for (AccessibilityNodeInfo r : roots) {
+            CharSequence p = r.getPackageName();
+            String ps = p == null ? "" : p.toString();
+            if (ps.equals(getPackageName()) || ps.contains("systemui")) continue;
+            collect(r, all, 0);
+        }
+        return all;
+    }
+    private static String txt(AccessibilityNodeInfo x) {
+        CharSequence t = x.getText();
+        if (t == null) t = x.getContentDescription();
+        return t == null ? "" : t.toString().trim().toLowerCase(Locale.ROOT);
+    }
+    /** Primeiro nó visível com o texto (exato; com prefixo=true aceita "texto, resumo"). */
+    private static AccessibilityNodeInfo findText(List<AccessibilityNodeInfo> all, String[] words, boolean prefix) {
+        for (String w : words) for (AccessibilityNodeInfo x : all) {
+            if (!x.isVisibleToUser()) continue;
+            String t = txt(x);
+            if (t.equals(w) || (prefix && t.startsWith(w + ","))) return x;
+        }
+        return null;
+    }
+    private static AccessibilityNodeInfo clickable(AccessibilityNodeInfo n) {
+        AccessibilityNodeInfo t = n;
+        for (int up = 0; up < 4 && t != null && !t.isClickable(); up++) t = t.getParent();
+        return t != null && t.isClickable() ? t : null;
+    }
+    private static boolean clickRow(AccessibilityNodeInfo n) {
+        AccessibilityNodeInfo t = clickable(n);
+        return t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+    }
+    private static void scrollAny(List<AccessibilityNodeInfo> all) {
+        for (AccessibilityNodeInfo x : all) if (x.isScrollable() && x.isVisibleToUser()) { x.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); }
+    }
+
     /** Sai das Configurações que o app abriu (Voltar até sair, no máximo 4 vezes). */
     static void leaveSettings() { leaveSettings(4); }
     private static void leaveSettings(final int left) {
