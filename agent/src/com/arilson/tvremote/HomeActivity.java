@@ -55,6 +55,13 @@ public class HomeActivity extends Activity {
     private float k = 1f; // escala: o desenho foi feito para 1920 px de largura
     private LinearLayout row;
     private HorizontalScrollView scroll;
+    // entradas de vídeo (TV, HDMI, AV…): só aparecem em TVs que têm
+    private LinearLayout inRow;
+    private HorizontalScrollView inScroll;
+    private TextView inTitle;
+    private final List<InputItem> inputs = new ArrayList<>();
+    private String inputsKey = "";
+    private android.media.tv.TvInputManager.TvInputCallback tvCb;
     private TextView clock, hint;
     private View gear;
     private final Handler h = new Handler(Looper.getMainLooper());
@@ -79,6 +86,8 @@ public class HomeActivity extends Activity {
         if (k <= 0) k = 1f;
         setContentView(build());
         if (cache != null) { items.clear(); items.addAll(cache); fillRow(); }
+        refreshInputs();
+        watchInputs();
         load();
         IntentFilter pf = new IntentFilter();
         pf.addAction(Intent.ACTION_PACKAGE_ADDED); pf.addAction(Intent.ACTION_PACKAGE_REMOVED);
@@ -89,6 +98,7 @@ public class HomeActivity extends Activity {
 
     @Override protected void onDestroy() {
         try { unregisterReceiver(pkgReceiver); } catch (Throwable ignored) {}
+        try { if (tvCb != null) ((android.media.tv.TvInputManager) getSystemService(Context.TV_INPUT_SERVICE)).unregisterCallback(tvCb); } catch (Throwable ignored) {}
         super.onDestroy();
     }
 
@@ -97,6 +107,7 @@ public class HomeActivity extends Activity {
         // onStart = a tela inicial voltou a aparecer de verdade (ligou a TV, saiu de um app,
         // acordou do descanso). Janelinhas por cima (mensagem, permissão) não passam por aqui.
         startFresh = true;
+        refreshInputs();
     }
 
     @Override protected void onResume() {
@@ -195,6 +206,28 @@ public class HomeActivity extends Activity {
         FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(108 + 40), Gravity.TOP);
         slp.topMargin = px(464 - 20);
         root.addView(scroll, slp);
+
+        // entradas de vídeo, embaixo dos apps (escondidas até achar alguma)
+        inTitle = txt("Entradas", 24, Color.rgb(150, 150, 150), false);
+        inTitle.setSingleLine(true);
+        FrameLayout.LayoutParams itl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT);
+        itl.leftMargin = px(110);
+        root.addView(inTitle, itl);
+        inScroll = new HorizontalScrollView(this);
+        inScroll.setHorizontalScrollBarEnabled(false);
+        inScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        inScroll.setClipChildren(false);
+        inScroll.setClipToPadding(false);
+        inScroll.setSmoothScrollingEnabled(true);
+        inRow = new LinearLayout(this);
+        inRow.setOrientation(LinearLayout.HORIZONTAL);
+        inRow.setClipChildren(false);
+        inRow.setClipToPadding(false);
+        inRow.setGravity(Gravity.CENTER_VERTICAL);
+        inRow.setPadding(px(110), px(20), px(110), px(20));
+        inScroll.addView(inRow, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(inScroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(108 + 40), Gravity.TOP));
+        layoutRows(false);
 
         hint = txt(baseHint(), 22, Color.rgb(120, 120, 120), false);
         hint.setGravity(Gravity.CENTER);
@@ -441,7 +474,7 @@ public class HomeActivity extends Activity {
         // a janela só recebe o foco de verdade um pouco depois de abrir (no boot, às vezes bem depois)
         if (has && moving < 0) {
             View f = getCurrentFocus();
-            if (f == null || f.getParent() != row) focusLast();
+            if (f == null || (f.getParent() != row && f.getParent() != inRow)) focusLast();
         }
     }
 
@@ -564,6 +597,272 @@ public class HomeActivity extends Activity {
             }
         }
         return super.dispatchKeyEvent(e);
+    }
+
+    // ---------------- entradas de vídeo ----------------
+    static final class InputItem {
+        String id, label; int type; boolean tuner; int group, hw;
+    }
+
+    /** Com entradas: os apps sobem um pouco e as entradas ficam logo abaixo (o conjunto fica no meio da tela). */
+    private void layoutRows(boolean has) {
+        int appsTop = has ? 392 : 464;
+        FrameLayout.LayoutParams a = (FrameLayout.LayoutParams) scroll.getLayoutParams();
+        a.topMargin = px(appsTop - 20);
+        scroll.setLayoutParams(a);
+        FrameLayout.LayoutParams t = (FrameLayout.LayoutParams) inTitle.getLayoutParams();
+        t.topMargin = px(appsTop + 108 + 54);
+        inTitle.setLayoutParams(t);
+        FrameLayout.LayoutParams r = (FrameLayout.LayoutParams) inScroll.getLayoutParams();
+        r.topMargin = px(appsTop + 108 + 54 + 44 - 20);
+        inScroll.setLayoutParams(r);
+        inTitle.setVisibility(has ? View.VISIBLE : View.GONE);
+        inScroll.setVisibility(has ? View.VISIBLE : View.GONE);
+    }
+
+    /** Quando a TV avisa que uma entrada apareceu/sumiu/mudou de nome, monta a fileira de novo. */
+    private void watchInputs() {
+        try {
+            android.media.tv.TvInputManager tm = (android.media.tv.TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
+            if (tm == null) return;
+            tvCb = new android.media.tv.TvInputManager.TvInputCallback() {
+                @Override public void onInputAdded(String id) { later(); }
+                @Override public void onInputRemoved(String id) { later(); }
+                @Override public void onInputUpdated(String id) { later(); }
+                private void later() { h.removeCallbacks(inputsReload); h.postDelayed(inputsReload, 500); }
+            };
+            tm.registerCallback(tvCb, h);
+        } catch (Throwable ignored) {}
+    }
+    private final Runnable inputsReload = new Runnable() { public void run() { refreshInputs(); } };
+
+    private void refreshInputs() {
+        if (inRow == null) return;
+        List<InputItem> l;
+        try { l = queryInputs(this); } catch (Throwable e) { Diag.save("launcher: entradas", e); l = new ArrayList<>(); }
+        StringBuilder key = new StringBuilder();
+        for (InputItem it : l) key.append(it.id).append('=').append(it.label).append(';');
+        if (key.toString().equals(inputsKey) && inRow.getChildCount() == l.size()) return;
+        inputsKey = key.toString();
+        View f = getCurrentFocus();
+        boolean hadFocus = f != null && f.getParent() == inRow;
+        inputs.clear(); inputs.addAll(l);
+        inRow.removeAllViews();
+        for (InputItem it : inputs) inRow.addView(inputTile(it));
+        layoutRows(!inputs.isEmpty());
+        if (hadFocus) focusLast();
+        if (!inputs.isEmpty()) {
+            StringBuilder b = new StringBuilder("entradas de vídeo: ");
+            for (InputItem it : inputs) b.append(it.label).append(" [").append(it.type).append(' ').append(it.id).append("]  ");
+            Diag.event(b.toString());
+        }
+    }
+
+    private static final java.util.regex.Pattern HW = java.util.regex.Pattern.compile("/(HW|HDMI)(\\d+)$");
+
+    /** Entradas físicas da TV: antena (TV), HDMI, AV, componente, VGA… Apps de canais (IPTV) ficam de fora. */
+    static List<InputItem> queryInputs(Context c) {
+        List<InputItem> out = new ArrayList<>();
+        android.media.tv.TvInputManager tm;
+        try { tm = (android.media.tv.TvInputManager) c.getSystemService(Context.TV_INPUT_SERVICE); } catch (Throwable e) { return out; }
+        if (tm == null) return out;
+        List<android.media.tv.TvInputInfo> all;
+        try { all = tm.getTvInputList(); } catch (Throwable e) { return out; }
+        if (all == null) return out;
+        for (android.media.tv.TvInputInfo ti : all) {
+            try {
+                String id = ti.getId();
+                if (id == null || ti.getParentId() != null) continue; // aparelhos ligados por HDMI-CEC: já estão na entrada HDMI
+                if (ti.isHidden(c)) continue;                          // o cliente escondeu nas configurações da TV
+                java.util.regex.Matcher m = HW.matcher(id);
+                boolean hardware = m.find();
+                boolean pass = ti.isPassthroughInput();
+                int type = ti.getType();
+                boolean tuner = type == android.media.tv.TvInputInfo.TYPE_TUNER;
+                if (tuner && !hardware) continue;                      // canais de app (IPTV, Pluto…), não é a antena
+                if (!pass && !tuner) continue;
+                InputItem it = new InputItem();
+                it.id = id; it.type = type; it.tuner = tuner;
+                it.hw = hardware ? Integer.parseInt(m.group(2)) : 9999;
+                it.group = group(type);
+                CharSequence lab = null;
+                try { lab = ti.loadCustomLabel(c); } catch (Throwable ignored) {}
+                if (lab == null || lab.toString().trim().isEmpty()) try { lab = ti.loadLabel(c); } catch (Throwable ignored) {}
+                it.label = lab == null ? "" : lab.toString().trim();
+                out.add(it);
+            } catch (Throwable ignored) {}
+        }
+        java.util.Collections.sort(out, new java.util.Comparator<InputItem>() {
+            public int compare(InputItem a, InputItem b) { return a.group != b.group ? a.group - b.group : a.hw != b.hw ? a.hw - b.hw : a.id.compareTo(b.id); }
+        });
+        // nomes: o da TV quando é bom; senão "HDMI 1", "AV"…
+        int[] count = new int[8];
+        for (InputItem it : out) count[it.group]++;
+        int[] nth = new int[8];
+        for (InputItem it : out) {
+            nth[it.group]++;
+            String low = it.label.toLowerCase(java.util.Locale.ROOT);
+            boolean junk = it.label.isEmpty() || low.contains("service") || low.contains("passthrough") || low.contains("pass through")
+                    || low.contains("tvinput") || low.contains("tv input") || low.startsWith("com.") || it.label.length() > 24;
+            String base = typeName(it.type);
+            if (junk) it.label = count[it.group] > 1 || it.type == android.media.tv.TvInputInfo.TYPE_HDMI ? base + " " + nth[it.group] : base;
+            else if (it.type == android.media.tv.TvInputInfo.TYPE_HDMI && low.replaceAll("[^a-z0-9]", "").equals("hdmi")) it.label = "HDMI " + nth[it.group];
+        }
+        // nomes repetidos ganham número
+        Map<String, Integer> seen = new HashMap<>();
+        for (InputItem it : out) {
+            Integer n = seen.get(it.label);
+            seen.put(it.label, n == null ? 1 : n + 1);
+            if (n != null) it.label = it.label + " " + (n + 1);
+        }
+        java.util.Collections.sort(out, new java.util.Comparator<InputItem>() {
+            public int compare(InputItem a, InputItem b) { return a.group != b.group ? a.group - b.group : a.label.compareToIgnoreCase(b.label); }
+        });
+        return out;
+    }
+
+    private static int group(int type) {
+        switch (type) {
+            case android.media.tv.TvInputInfo.TYPE_TUNER: return 0;
+            case android.media.tv.TvInputInfo.TYPE_HDMI: return 1;
+            case android.media.tv.TvInputInfo.TYPE_COMPOSITE: return 2;
+            case android.media.tv.TvInputInfo.TYPE_COMPONENT: return 3;
+            case android.media.tv.TvInputInfo.TYPE_SVIDEO: case android.media.tv.TvInputInfo.TYPE_SCART: return 4;
+            case android.media.tv.TvInputInfo.TYPE_VGA: case android.media.tv.TvInputInfo.TYPE_DVI:
+            case android.media.tv.TvInputInfo.TYPE_DISPLAY_PORT: return 5;
+            default: return 6;
+        }
+    }
+
+    private static String typeName(int type) {
+        switch (type) {
+            case android.media.tv.TvInputInfo.TYPE_TUNER: return "TV";
+            case android.media.tv.TvInputInfo.TYPE_HDMI: return "HDMI";
+            case android.media.tv.TvInputInfo.TYPE_COMPOSITE: return "AV";
+            case android.media.tv.TvInputInfo.TYPE_COMPONENT: return "Componente";
+            case android.media.tv.TvInputInfo.TYPE_SVIDEO: return "S-Video";
+            case android.media.tv.TvInputInfo.TYPE_SCART: return "SCART";
+            case android.media.tv.TvInputInfo.TYPE_VGA: return "VGA";
+            case android.media.tv.TvInputInfo.TYPE_DVI: return "DVI";
+            case android.media.tv.TvInputInfo.TYPE_DISPLAY_PORT: return "DisplayPort";
+            default: return "Entrada";
+        }
+    }
+
+    /** Cartão da entrada: mesmo tamanho do cartão de app, fundo escuro, desenho do conector + nome. */
+    private View inputTile(final InputItem it) {
+        final FrameLayout f = new FrameLayout(this);
+        f.setFocusable(true);
+        f.setClickable(true);
+        f.setTag("input:" + it.id);
+        final float r = px(10);
+        f.setOutlineProvider(new ViewOutlineProvider() {
+            @Override public void getOutline(View v, Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), r); }
+        });
+        f.setClipToOutline(true);
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{Color.rgb(58, 62, 72), Color.rgb(32, 34, 40)});
+        f.setBackground(bg);
+        LinearLayout in = new LinearLayout(this);
+        in.setOrientation(LinearLayout.VERTICAL);
+        in.setGravity(Gravity.CENTER);
+        in.setPadding(px(8), px(6), px(8), px(6));
+        InputIcon ic = new InputIcon(this, it.group);
+        in.addView(ic, new LinearLayout.LayoutParams(px(84), px(40)));
+        TextView name = txt(it.label, 22, Color.WHITE, true);
+        name.setSingleLine(true);
+        name.setGravity(Gravity.CENTER);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = px(10);
+        in.addView(name, np);
+        f.addView(in, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        f.setForeground(dim());
+        f.setContentDescription(it.label);
+        f.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            if (moving >= 0) { endMove(); return; }
+            openInput(it);
+        }});
+        f.setOnFocusChangeListener(new View.OnFocusChangeListener() { public void onFocusChange(View v, boolean has) { style(v, has); } });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(192), px(108));
+        lp.rightMargin = px(24);
+        f.setLayoutParams(lp);
+        return f;
+    }
+
+    /** Liga a entrada pelo app de TV do próprio aparelho (o mesmo caminho que o Google TV usa). */
+    private void openInput(InputItem it) {
+        android.net.Uri u;
+        String type;
+        try {
+            u = it.tuner ? android.media.tv.TvContract.buildChannelsUriForInput(it.id)
+                         : android.media.tv.TvContract.buildChannelUriForPassthroughInput(it.id);
+            type = it.tuner ? "vnd.android.cursor.dir/channel" : "vnd.android.cursor.item/channel";
+        } catch (Throwable e) { u = null; type = null; }
+        int fl = Intent.FLAG_ACTIVITY_NEW_TASK;
+        if (u != null) {
+            try { startActivity(new Intent(Intent.ACTION_VIEW, u).addFlags(fl)); Diag.event("entrada: abriu " + it.label); return; } catch (Throwable ignored) {}
+            try { startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(u, type).addFlags(fl)); Diag.event("entrada: abriu " + it.label + " (tipo)"); return; } catch (Throwable ignored) {}
+        }
+        // último recurso: abre o app de TV do aparelho
+        try {
+            ResolveInfo ri = getPackageManager().resolveActivity(new Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(android.net.Uri.parse("content://android.media.tv/channel"), "vnd.android.cursor.dir/channel"), 0);
+            if (ri != null && ri.activityInfo != null) {
+                Intent li = getPackageManager().getLeanbackLaunchIntentForPackage(ri.activityInfo.packageName);
+                if (li == null) li = getPackageManager().getLaunchIntentForPackage(ri.activityInfo.packageName);
+                if (li != null) { startActivity(li.addFlags(fl)); Diag.event("entrada: abriu o app de TV para " + it.label); return; }
+            }
+        } catch (Throwable ignored) {}
+        android.widget.Toast.makeText(this, "Não consegui abrir " + it.label, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    /** Desenho do conector (sem imagem): antena para TV, HDMI, as 3 bolinhas do AV/componente, ou um conector genérico. */
+    static final class InputIcon extends View {
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int g;
+        InputIcon(Context c, int group) { super(c); g = group; }
+        @Override protected void onDraw(Canvas cv) {
+            float w = getWidth(), hh = getHeight(), cx = w / 2f, cy = hh / 2f;
+            float sw = Math.max(2f, hh * 0.075f);
+            p.setStrokeWidth(sw);
+            p.setStrokeJoin(Paint.Join.ROUND);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setColor(Color.WHITE);
+            if (g == 0) { // TV com antena
+                float tw = hh * 1.25f, th = hh * 0.72f, top = hh - th - sw;
+                p.setStyle(Paint.Style.STROKE);
+                cv.drawRoundRect(cx - tw / 2f, top, cx + tw / 2f, top + th, sw * 1.5f, sw * 1.5f, p);
+                cv.drawLine(cx, top, cx - hh * 0.28f, sw, p);
+                cv.drawLine(cx, top, cx + hh * 0.28f, sw, p);
+                cv.drawLine(cx - tw * 0.22f, top + th + sw * 0.2f, cx + tw * 0.22f, top + th + sw * 0.2f, p);
+            } else if (g == 1) { // HDMI: boca do conector (larga em cima, chanfrada embaixo)
+                float cw = hh * 1.7f, ch = hh * 0.62f, l = cx - cw / 2f, rr = cx + cw / 2f, t = cy - ch / 2f, b = cy + ch / 2f, ch2 = ch * 0.38f;
+                Path pa = new Path();
+                pa.moveTo(l, t); pa.lineTo(rr, t); pa.lineTo(rr, b - ch2); pa.lineTo(rr - ch2, b); pa.lineTo(l + ch2, b); pa.lineTo(l, b - ch2); pa.close();
+                p.setStyle(Paint.Style.STROKE);
+                cv.drawPath(pa, p);
+                p.setStyle(Paint.Style.FILL);
+                float iw = cw * 0.62f, ih = ch * 0.26f;
+                cv.drawRoundRect(cx - iw / 2f, cy - ih / 2f - ch * 0.04f, cx + iw / 2f, cy + ih / 2f - ch * 0.04f, ih / 3f, ih / 3f, p);
+            } else if (g == 2 || g == 3) { // AV (amarelo, branco, vermelho) ou componente (verde, azul, vermelho)
+                int[] cols = g == 2 ? new int[]{Color.rgb(250, 204, 21), Color.WHITE, Color.rgb(239, 68, 68)}
+                                    : new int[]{Color.rgb(34, 197, 94), Color.rgb(59, 130, 246), Color.rgb(239, 68, 68)};
+                float rad = hh * 0.30f, gap = rad * 2.6f;
+                for (int i = 0; i < 3; i++) {
+                    float x = cx + (i - 1) * gap;
+                    p.setStyle(Paint.Style.FILL); p.setColor(cols[i]);
+                    cv.drawCircle(x, cy, rad, p);
+                    p.setColor(Color.rgb(32, 34, 40));
+                    cv.drawCircle(x, cy, rad * 0.38f, p);
+                }
+            } else { // genérico: conector com pinos
+                float cw = hh * 1.5f, ch = hh * 0.62f;
+                p.setStyle(Paint.Style.STROKE);
+                cv.drawRoundRect(cx - cw / 2f, cy - ch / 2f, cx + cw / 2f, cy + ch / 2f, ch * 0.3f, ch * 0.3f, p);
+                p.setStyle(Paint.Style.FILL);
+                for (int i = 0; i < 4; i++) cv.drawCircle(cx - cw * 0.3f + i * cw * 0.2f, cy, sw * 0.9f, p);
+            }
+        }
     }
 
     /** Engrenagem desenhada (sem depender de imagem): branca; com foco, círculo branco e engrenagem preta. */
