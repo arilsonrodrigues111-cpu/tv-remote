@@ -199,6 +199,11 @@
   #log .error { color:#f87171; } #log .ok { color:#4ade80; }
   .dropbox { display:block; border:2px dashed #33415f; border-radius:var(--r); padding:22px 12px; text-align:center; color:var(--mut); cursor:pointer; }
   .dropbox:hover { border-color:var(--blue); color:var(--fg); }
+  .dropbox.small { padding:10px 12px; font-size:12.5px; }
+  .dropbox.over { border-color:var(--acc); color:var(--fg); }
+  button.streambtn { width:100%; padding:14px 12px; font-size:15px; font-weight:800; letter-spacing:.04em; }
+  #blkList .listrow b { font-size:13px; }
+  #streamInfo { overflow-wrap:anywhere; }
   .prog { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:6px 0; }
   .prog i { display:block; height:100%; background:var(--blue); width:0; transition:width .2s; }
   #drop { position:fixed; inset:0; background:rgba(59,130,246,.15); border:4px dashed var(--blue); display:none; align-items:center; justify-content:center; font-size:26px; z-index:10; pointer-events:none; }
@@ -287,8 +292,15 @@
   <input id="cmName" placeholder="Ex.: João da Silva" maxlength="80">
   <label>Observações (telefone, endereço, plano...)</label>
   <textarea id="cmNotes" rows="4" maxlength="500" placeholder="Opcional"></textarea>
-  <div class="row"><button type="button" class="ghost" id="cmForget" style="color:#f87171">Remover</button><span class="grow"></span>
+  <div class="row"><button type="button" class="ghost" id="cmForget" style="color:#f87171" title="Tira o cliente da lista e desliga a TV dele do suporte">🗑 Apagar cliente</button><span class="grow"></span>
     <button type="button" onclick="closeModal()">Cancelar</button><button class="accent">Salvar</button></div>
+</form></div>
+
+<div class="modal" id="blkModal"><form onsubmit="return false">
+  <b>TVs apagadas</b>
+  <div class="hint">Clientes que você apagou. A TV deles não consegue se conectar ao suporte. Desbloqueie se voltar a atender: ela entra de novo na lista com número novo.</div>
+  <div id="blkList" style="max-height:50vh;overflow:auto"></div>
+  <div class="row"><span class="grow"></span><button type="button" onclick="$('blkModal').classList.remove('on')">Fechar</button></div>
 </form></div>
 
 <header class="top">
@@ -310,6 +322,7 @@
       </div>
     </div>
     <div id="devs"><div class="hint" style="padding:10px">Nenhum cliente ainda. Instale o app na TV: <b>suporte.arilsondev.com/agent.apk</b></div></div>
+    <div id="blkLink" class="hint" style="display:none;padding:6px 14px 10px;cursor:pointer" onclick="openBlocked()"></div>
   </aside>
 
   <section class="work">
@@ -447,7 +460,15 @@
               <button onclick="installUrl()">Instalar</button>
             </div>
             <div id="uploads"></div>
-            <div class="hint" style="margin-top:8px">O instalador da TV é confirmado sozinho. Se a TV pedir “instalar apps”, use a aba Liberar.</div>
+            <div class="hint" style="margin-top:8px">O instalador da TV é confirmado sozinho e o app instalado já ganha permissão de armazenamento e de instalar apps (fontes desconhecidas). Se a TV pedir “instalar apps”, use a aba Liberar.</div>
+          </div>
+          <div class="sec">
+            <h3>📺 Aplicativo de streaming</h3>
+            <button class="accent streambtn" onclick="installStreaming()">INSTALAR APLICATIVO DE STREAMING</button>
+            <div class="hint" id="streamInfo" style="margin:8px 0">Nenhum APK de streaming no painel ainda: envie abaixo.</div>
+            <label class="dropbox small" for="streamFile" id="streamDrop">Enviar / trocar o APK de streaming: arraste aqui ou <b>clique para escolher</b></label>
+            <input type="file" id="streamFile" accept=".apk" style="display:none" onchange="if(this.files[0])uploadStreaming(this.files[0]);this.value=''">
+            <div id="streamProg"></div>
           </div>
         </div>
 
@@ -574,7 +595,7 @@ function connect() {
       return;
     }
     const m = JSON.parse(ev.data);
-    if (m.type === 'devices') { devices = m.list; renderDevices(); if (appMode === 'home' && !homeBusy) renderApps(); }
+    if (m.type === 'devices') { devices = m.list; if ('streaming' in m) { streamApk = m.streaming; renderStreaming(); } if (m.blocked) { blockedTvs = m.blocked; renderBlocked(); } renderDevices(); if (appMode === 'home' && !homeBusy) renderApps(); }
     else if (m.type === 'launcherApps') { launcherApps = m.list || []; if (appMode === 'home') renderApps(); }
     else if (m.type === 'status') { log(`[${devName(m.device)}] ${m.msg}`, m.level); if (m.device === current || !m.device) toast(m.msg, m.level); }
     else if (m.type === 'apps') { apps = m.list.sort((a, b) => a.label.localeCompare(b.label)); renderApps(); }
@@ -967,8 +988,14 @@ function openClient() {
   $('cmNum').innerHTML = `<small>CLIENTE</small>${pad4(d.num)}`;
   $('cmModel').textContent = [d.model, d.android && 'Android ' + d.android].filter(Boolean).join(' · ');
   $('cmName').value = d.client || ''; $('cmNotes').value = d.notes || '';
-  $('cmForget').style.display = d.online === false ? '' : 'none';
-  $('cmForget').onclick = () => { if (confirm(`Remover o cliente nº ${pad4(d.num)} da lista? (Se a TV voltar, ganha um número novo.)`)) { ws.send(JSON.stringify({ type: 'forgetClient', id: d.id })); current = null; closeModal(); } };
+  $('cmForget').style.display = '';
+  $('cmForget').onclick = () => {
+    const quem = `nº ${pad4(d.num)}${d.client ? ' (' + d.client + ')' : ''}`;
+    if (!confirm(`Apagar o cliente ${quem}?\n\nEle sai da lista e a TV dele deixa de se conectar ao suporte.\nSe precisar, dá para desbloquear depois em “TVs apagadas”, embaixo da lista de clientes.`)) return;
+    ws.send(JSON.stringify({ type: 'deleteClient', id: d.id }));
+    current = null; try { localStorage.removeItem('tvr_last'); } catch {} closeModal();
+    $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">🗑</div>Cliente apagado.';
+  };
   $('clientModal').classList.add('on'); setTimeout(() => $('cmName').focus(), 50);
 }
 function closeModal() { $('clientModal').classList.remove('on'); }
@@ -1531,6 +1558,70 @@ function installUrl() {
   const u = $('apkurl').value.trim(); if (!u) return;
   send({ type: 'install', url: u, name: u.split('/').pop().split('?')[0] || 'app.apk' }); $('apkurl').value = '';
 }
+
+// ---------- aplicativo de streaming (um APK fixo no painel) ----------
+let streamApk = null, blockedTvs = [];
+function renderStreaming() {
+  const el = $('streamInfo'); if (!el) return;
+  el.innerHTML = streamApk
+    ? `APK no painel: <b>${esc(streamApk.name)}</b> · ${fmtSize(streamApk.size)} · enviado ${esc(hora(streamApk.at))}`
+    : 'Nenhum APK de streaming no painel ainda: envie abaixo.';
+}
+function installStreaming() {
+  if (!streamApk) return toast('Envie primeiro o APK de streaming (caixa logo abaixo do botão)', 'error');
+  if (!current) return toast('Selecione um cliente primeiro', 'error');
+  send({ type: 'install', url: location.origin + '/streaming-app?device=' + encodeURIComponent(current) + '&v=' + streamApk.at,
+    name: streamApk.name, grant: true, streaming: true });
+  toast('A TV está baixando o aplicativo de streaming…', 'ok');
+}
+function uploadStreaming(file) {
+  if (!file.name.toLowerCase().endsWith('.apk')) return toast(file.name + ' não é .apk', 'error');
+  if (streamApk && !confirm(`Trocar o APK de streaming (${streamApk.name}) por ${file.name}?`)) return;
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/streaming?name=' + encodeURIComponent(file.name));
+  xhr.setRequestHeader('X-Token', TOKEN);
+  const box = $('streamProg');
+  box.innerHTML = '<div class="hint"></div><div class="prog"><i></i></div>';
+  const upd = (pct, t) => { box.querySelector('.hint').textContent = t + ' – ' + pct + '%'; box.querySelector('i').style.width = pct + '%'; };
+  xhr.upload.onprogress = (e) => e.lengthComputable && upd(Math.round(e.loaded / e.total * 100), 'Enviando ' + file.name);
+  xhr.onload = () => {
+    if (xhr.status !== 200) { box.innerHTML = ''; return toast('Falha ao enviar: ' + (xhr.responseText || xhr.status), 'error'); }
+    streamApk = JSON.parse(xhr.responseText); renderStreaming();
+    upd(100, 'Pronto'); setTimeout(() => box.innerHTML = '', 3000);
+    toast('APK de streaming salvo no painel ✓', 'ok');
+  };
+  xhr.onerror = () => { box.innerHTML = ''; toast('Erro de rede no envio', 'error'); };
+  xhr.send(file);
+}
+(() => {
+  const z = $('streamDrop'); if (!z) return;
+  z.addEventListener('dragover', (e) => { e.preventDefault(); z.classList.add('over'); });
+  z.addEventListener('dragleave', () => z.classList.remove('over'));
+  z.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation(); z.classList.remove('over'); dragDepth = 0; $('drop').classList.remove('on');
+    const f = e.dataTransfer.files[0]; if (f) uploadStreaming(f);
+  });
+})();
+function renderBlocked() {
+  const l = $('blkLink');
+  l.style.display = blockedTvs.length ? '' : 'none';
+  l.textContent = `🚫 TVs apagadas (${blockedTvs.length})`;
+  if ($('blkModal').classList.contains('on')) openBlocked();
+}
+function openBlocked() {
+  const el = $('blkList');
+  el.innerHTML = blockedTvs.length ? '' : '<div class="hint">Nenhuma.</div>';
+  for (const b of blockedTvs) {
+    const r = document.createElement('div'); r.className = 'listrow';
+    r.innerHTML = '<span><b></b><small></small></span><button>Desbloquear</button>';
+    r.querySelector('b').textContent = 'nº ' + pad4(b.num) + (b.name ? ' · ' + b.name : '');
+    r.querySelector('small').textContent = [b.model, b.at && 'apagado ' + hora(b.at)].filter(Boolean).join(' · ');
+    r.querySelector('button').onclick = () => { if (confirm('Desbloquear esta TV? Quando ela ligar, volta para a lista com número novo.')) ws.send(JSON.stringify({ type: 'unblockClient', id: b.id })); };
+    el.appendChild(r);
+  }
+  $('blkModal').classList.add('on');
+}
+$('blkModal').addEventListener('click', (e) => { if (e.target.id === 'blkModal') $('blkModal').classList.remove('on'); });
 
 // ---------- explorador de arquivos ----------
 let filePath = '', fileRoot = '';

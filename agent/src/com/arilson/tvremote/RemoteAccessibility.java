@@ -85,6 +85,111 @@ public class RemoteAccessibility extends AccessibilityService {
 
     static void cancelAutoAccept() { autoAcceptUntil = 0; projectionMode = false; debugMode = false; permMode = false; }
 
+    // ---------- caminho guiado nas Configurações (ex.: Permissões → Armazenamento → Permitir) ----------
+    interface WalkDone { void done(boolean ok); }
+    private static String[][] walkSteps;
+    private static int walkIdx, walkMiss;
+    private static long walkUntil, walkNotBefore;
+    private static WalkDone walkDone;
+    private static final Handler wh = new Handler(Looper.getMainLooper());
+
+    /** Toca, um por vez, no primeiro item de cada passo (textos possíveis em ordem de preferência). */
+    static void walk(String[][] steps, long ms, WalkDone done) {
+        walkSteps = steps; walkIdx = 0; walkMiss = 0; walkDone = done;
+        long now = System.currentTimeMillis();
+        walkUntil = now + ms; walkNotBefore = now + 1500;
+        wh.removeCallbacks(walkTick);
+        wh.postDelayed(walkTick, 1600);
+    }
+    private static void endWalk(boolean ok) {
+        wh.removeCallbacks(walkTick);
+        WalkDone d = walkDone; walkDone = null; walkSteps = null;
+        if (d != null) try { d.done(ok); } catch (Throwable ignored) {}
+    }
+    private static final Runnable walkTick = new Runnable() { public void run() {
+        if (walkSteps == null) return;
+        long now = System.currentTimeMillis();
+        RemoteAccessibility s = instance;
+        if (s == null || now > walkUntil) { Diag.event("permissões: caminho parou no passo " + (walkIdx + 1)); endWalk(false); return; }
+        if (now < walkNotBefore) { wh.postDelayed(this, walkNotBefore - now + 50); return; }
+        int r;
+        try { r = s.walkStep(walkSteps[walkIdx]); } catch (Throwable t) { r = 0; }
+        if (r == 2 || (r == 1 && walkIdx == walkSteps.length - 1)) { endWalk(true); return; }
+        if (r == 1) { walkIdx++; walkMiss = 0; walkNotBefore = System.currentTimeMillis() + 1300; wh.postDelayed(this, 1350); return; }
+        walkMiss++;
+        wh.postDelayed(this, 700);
+    }};
+
+    /** 0 = não achou; 1 = tocou no item (vai pro próximo passo); 2 = já estava ligado / chave ligada (acabou). */
+    private int walkStep(String[] words) {
+        List<AccessibilityNodeInfo> all = new ArrayList<>();
+        AccessibilityNodeInfo scroller = null;
+        for (AccessibilityNodeInfo root : settingsRoots()) {
+            collect(root, all, 0);
+        }
+        for (AccessibilityNodeInfo n : all) if (scroller == null && n.isScrollable()) scroller = n;
+        for (int pass = 0; pass < 2; pass++) {
+            for (String w : words) {
+                for (AccessibilityNodeInfo n : all) {
+                    if (!n.isVisibleToUser()) continue;
+                    CharSequence t = n.getText();
+                    if (t == null) t = n.getContentDescription();
+                    if (t == null) continue;
+                    String x = t.toString().trim().toLowerCase(Locale.ROOT);
+                    if (pass == 0 ? !x.equals(w) : !(x.startsWith(w + " ") || x.startsWith(w + ","))) continue;
+                    // a própria linha (ou um item dela) é uma chave: liga e acaba
+                    AccessibilityNodeInfo row = n;
+                    for (int up = 0; up < 3 && row != null && !row.isClickable(); up++) row = row.getParent();
+                    AccessibilityNodeInfo sw = n.isCheckable() ? n : (row != null ? firstCheckable(row, 0) : null);
+                    if (sw != null) {
+                        if (sw.isChecked()) return 2;
+                        AccessibilityNodeInfo tgt = row != null ? row : sw;
+                        if (tgt.performAction(AccessibilityNodeInfo.ACTION_CLICK) || sw.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return 2;
+                        continue;
+                    }
+                    if (row != null && row.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return 1;
+                }
+            }
+        }
+        // não achou: a lista pode estar mais embaixo
+        if (scroller != null && walkMiss % 3 == 2) scroller.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+        return 0;
+    }
+    private static AccessibilityNodeInfo firstCheckable(AccessibilityNodeInfo n, int depth) {
+        if (n == null || depth > 6) return null;
+        if (n.isCheckable()) return n;
+        for (int i = 0; i < n.getChildCount(); i++) { AccessibilityNodeInfo r = firstCheckable(n.getChild(i), depth + 1); if (r != null) return r; }
+        return null;
+    }
+    private List<AccessibilityNodeInfo> settingsRoots() {
+        List<AccessibilityNodeInfo> out = new ArrayList<>();
+        AccessibilityNodeInfo active = getRootInActiveWindow();
+        if (active != null && isSettingsPkg(active.getPackageName())) out.add(active);
+        try {
+            for (AccessibilityWindowInfo w : getWindows()) {
+                AccessibilityNodeInfo r = w.getRoot();
+                if (r != null && isSettingsPkg(r.getPackageName()) && (active == null || !r.equals(active))) out.add(r);
+            }
+        } catch (Exception ignored) {}
+        return out;
+    }
+    private static boolean isSettingsPkg(CharSequence p) {
+        if (p == null) return false;
+        String x = p.toString();
+        return x.contains("settings") || x.contains("permissioncontroller") || x.contains("packageinstaller");
+    }
+
+    /** Sai das Configurações que o app abriu (Voltar até sair, no máximo 4 vezes). */
+    static void leaveSettings() { leaveSettings(4); }
+    private static void leaveSettings(final int left) {
+        final RemoteAccessibility s = instance;
+        if (s == null || left <= 0) return;
+        AccessibilityNodeInfo r = s.getRootInActiveWindow();
+        if (r == null || !isSettingsPkg(r.getPackageName())) return;
+        s.performGlobalAction(GLOBAL_ACTION_BACK);
+        wh.postDelayed(new Runnable() { public void run() { leaveSettings(left - 1); } }, 700);
+    }
+
     /** Abre uma Activity usando o contexto da acessibilidade (isento do bloqueio de background do Android 10+). */
     static void startActivityAny(Context fallback, Intent i) {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

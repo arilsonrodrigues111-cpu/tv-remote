@@ -24,7 +24,9 @@ import android.widget.Toast;
  */
 public class MainActivity extends Activity {
     private TextView clientNum, clientName, conn, chip1, chip2, title, subtitle, foot;
-    private Button action, fixAll, update;
+    private Button action, fixAll, update, streamBtn;
+    private TextView streamNote;
+    private boolean pendingStream = false;
     private Extra exInstall, exFiles, exAdb;
     private final Handler h = new Handler();
     private int lastState = -1;
@@ -97,6 +99,16 @@ public class MainActivity extends Activity {
         action = Ui.button(this, "", Ui.ORANGE);
         action.setTextSize(22);
         main.addView(action, Ui.wrap());
+
+        // ---------- aplicativo de streaming (logo abaixo do "ligar o controle") ----------
+        streamBtn = Ui.button(this, "⬇  INSTALAR APLICATIVO DE STREAMING", Ui.BLUE);
+        streamBtn.setTextSize(20);
+        streamBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { startStream(); } });
+        main.addView(streamBtn, Ui.margins(Ui.wrap(), this, 0, 16, 0, 0));
+        streamNote = Ui.text(this, "", 16, Ui.MUTED, false);
+        streamNote.setPadding(0, Ui.dp(this, 8), 0, 0);
+        streamNote.setVisibility(View.GONE);
+        main.addView(streamNote);
         col.addView(main, Ui.margins(Ui.match(), this, 0, 20, 0, 0));
 
         // ---------- liberações extras (opcional) ----------
@@ -226,6 +238,31 @@ public class MainActivity extends Activity {
         fixAll.setVisibility(inst && files && adb ? View.GONE : View.VISIBLE);
 
         foot.setText("versão " + BuildInfo.VERSION);
+
+        String sn = AgentService.streamNote;
+        streamNote.setText(sn);
+        streamNote.setVisibility(sn.isEmpty() ? View.GONE : View.VISIBLE);
+        streamNote.setTextColor(sn.endsWith("✓") ? Ui.GREEN : sn.startsWith("Não") ? Color.rgb(248, 113, 113) : Ui.MUTED);
+    }
+
+    /** Baixa o aplicativo de streaming que o suporte deixou no painel e instala. */
+    private void startStream() {
+        AgentService.start(this);
+        if (Build.VERSION.SDK_INT >= 26 && !AgentService.canInstall(this)) {
+            pendingStream = true;
+            AgentService.setStreamNote("Libere “Permitir desta fonte” e volte: a instalação começa sozinha");
+            openInstall();
+            return;
+        }
+        if (AgentService.streamBusy) { toast("Já está instalando, aguarde…"); return; }
+        if (!AgentService.installStreaming()) {
+            AgentService.setStreamNote("Abrindo o suporte, aguarde…");
+            h.postDelayed(new Runnable() { public void run() {
+                if (!AgentService.installStreaming()) AgentService.setStreamNote("Não deu: o app de suporte não abriu. Tente de novo.");
+            }}, 2500);
+            return;
+        }
+        toast("Baixando o aplicativo de streaming…");
     }
 
     private void show(String t, String sub, String btn, int color, final Runnable onClick) {
@@ -271,6 +308,12 @@ public class MainActivity extends Activity {
         lastState = -1;
         h.post(tick);
         if (fixChain) h.postDelayed(new Runnable() { public void run() { runChain(); } }, 900);
+        if (pendingStream) h.postDelayed(new Runnable() { public void run() {
+            if (!pendingStream) return;
+            pendingStream = false;
+            if (AgentService.canInstall(MainActivity.this)) startStream();
+            else AgentService.setStreamNote("Falta liberar “Instalar aplicativos” (abaixo) para instalar");
+        }}, 900);
     }
     @Override protected void onPause() { super.onPause(); h.removeCallbacks(tick); }
 }

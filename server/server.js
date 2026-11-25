@@ -42,14 +42,33 @@ function saveClients() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => fs.writeFile(CLIENTS_FILE + '.tmp', JSON.stringify(clients, null, 1), (e) => { if (!e) fs.rename(CLIENTS_FILE + '.tmp', CLIENTS_FILE, () => {}); }), 300);
 }
+// maior número já usado (cliente apagado não devolve o número para outra TV)
+const SEQ_FILE = path.join(DATA_DIR, 'seq.json');
+let lastNum = 0;
+try { lastNum = JSON.parse(fs.readFileSync(SEQ_FILE, 'utf8')).last || 0; } catch {}
 function clientFor(id) {
   if (!clients[id]) {
-    const next = Object.values(clients).reduce((m, c) => Math.max(m, c.num || 0), 0) + 1;
+    const next = Math.max(lastNum, Object.values(clients).reduce((m, c) => Math.max(m, c.num || 0), 0)) + 1;
+    lastNum = next; try { fs.writeFileSync(SEQ_FILE, JSON.stringify({ last: lastNum })); } catch {}
     clients[id] = { num: next, name: '', notes: '', firstSeen: Date.now() };
     log('novo cliente nº', next, id);
   }
   return clients[id];
 }
+
+// TVs apagadas pelo painel (cliente que não é mais atendido): não conseguem mais se conectar.
+const BLOCKED_FILE = path.join(DATA_DIR, 'blocked.json');
+let blocked = {}; // id -> { num, name, model, at }
+try { blocked = JSON.parse(fs.readFileSync(BLOCKED_FILE, 'utf8')); } catch {}
+function saveBlocked() { fs.writeFile(BLOCKED_FILE + '.tmp', JSON.stringify(blocked, null, 1), (e) => { if (!e) fs.rename(BLOCKED_FILE + '.tmp', BLOCKED_FILE, () => {}); }); }
+function blockedList() { return Object.entries(blocked).map(([id, b]) => ({ id, ...b })).sort((x, y) => (y.at || 0) - (x.at || 0)); }
+
+// Aplicativo de streaming padrão (botão "INSTALAR APLICATIVO DE STREAMING"): um APK só, guardado no volume de dados.
+const STREAM_APK = path.join(DATA_DIR, 'streaming.apk');
+const STREAM_META = path.join(DATA_DIR, 'streaming.json');
+let streaming = null; // { name, size, at }
+try { if (fs.existsSync(STREAM_APK)) streaming = JSON.parse(fs.readFileSync(STREAM_META, 'utf8')); } catch {}
+if (!streaming && fs.existsSync(STREAM_APK)) streaming = { name: 'streaming.apk', size: fs.statSync(STREAM_APK).size, at: fs.statSync(STREAM_APK).mtimeMs };
 
 // ---------- estado ----------
 /** id -> { ws, info, watchers:Set<ws> } */
@@ -69,7 +88,7 @@ function deviceList() {
   return out.sort((x, y) => (y.online - x.online) || ((x.num || 0) - (y.num || 0)));
 }
 function broadcastDevices() {
-  const msg = JSON.stringify({ type: 'devices', list: deviceList() });
+  const msg = JSON.stringify({ type: 'devices', list: deviceList(), streaming, blocked: blockedList() });
   for (const p of panels) if (p.readyState === 1) p.send(msg);
 }
 function sendJson(ws, obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
@@ -107,6 +126,44 @@ const server = http.createServer((req, res) => {
     });
     out.on('error', () => { if (!res.headersSent) { res.writeHead(500); res.end('erro'); } });
     return;
+  }
+
+  // Painel envia (ou troca) o APK do aplicativo de streaming.
+  if (p === '/api/streaming' && req.method === 'POST') {
+    if (!authOk(req, url)) { res.writeHead(401); return res.end('unauthorized'); }
+    const orig = (url.searchParams.get('name') || 'streaming.apk').replace(/[^\w.\-]+/g, '_').slice(0, 120);
+    const tmp = STREAM_APK + '.up';
+    const out = fs.createWriteStream(tmp);
+    let size = 0, aborted = false;
+    req.on('data', (c) => { size += c.length; if (size > MAX_UPLOAD && !aborted) { aborted = true; req.destroy(); out.destroy(); fs.rm(tmp, () => {}); } });
+    req.pipe(out);
+    out.on('finish', () => {
+      if (aborted) return;
+      // tem que ser um APK (zip começa com "PK")
+      const fd = fs.openSync(tmp, 'r'); const head = Buffer.alloc(2); fs.readSync(fd, head, 0, 2, 0); fs.closeSync(fd);
+      if (size < 1000 || head.toString() !== 'PK') { fs.rm(tmp, () => {}); res.writeHead(400); return res.end('isso não é um APK'); }
+      fs.renameSync(tmp, STREAM_APK);
+      streaming = { name: orig.endsWith('.apk') ? orig : orig + '.apk', size, at: Date.now() };
+      fs.writeFileSync(STREAM_META, JSON.stringify(streaming));
+      log('apk de streaming trocado', streaming.name, size);
+      res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(streaming));
+      broadcastDevices();
+    });
+    out.on('error', () => { if (!res.headersSent) { res.writeHead(500); res.end('erro'); } });
+    return;
+  }
+
+  // TV baixa o aplicativo de streaming (só TV cadastrada; sem extensão no caminho: a Cloudflare não guarda em cache)
+  if (p === '/streaming-app') {
+    const dev = (url.searchParams.get('device') || '').slice(0, 64);
+    if (!agentOk(req, url) || (!clients[dev] && !authOk(req, url)) || blocked[dev]) { res.writeHead(401); return res.end('unauthorized'); }
+    return fs.stat(STREAM_APK, (err, st) => {
+      if (err) { res.writeHead(404); return res.end('nenhum aplicativo de streaming no painel'); }
+      res.writeHead(200, { 'content-type': MIME['.apk'], 'content-length': st.size, 'cache-control': 'no-store',
+        'x-app-name': (streaming && streaming.name) || 'streaming.apk',
+        'content-disposition': 'attachment; filename="' + ((streaming && streaming.name) || 'streaming.apk').replace(/"/g, '') + '"' });
+      fs.createReadStream(STREAM_APK).pipe(res);
+    });
   }
 
   // Download do APK pelo agente (token na query)
@@ -214,6 +271,7 @@ wss.on('connection', (ws, req) => {
   if (role === 'agent') {
     const id = (url.searchParams.get('id') || '').slice(0, 64);
     if (!id) return ws.close(4002, 'id requerido');
+    if (blocked[id]) return ws.close(4003, 'apagado pelo suporte');
     const old = agents.get(id);
     // painéis que estavam olhando esta TV continuam olhando quando ela reconecta (atualização do app, queda de internet)
     const watchers = old ? old.watchers : new Set();
@@ -257,7 +315,7 @@ wss.on('connection', (ws, req) => {
   // painel
   panels.add(ws);
   ws.watching = null; ws.paused = false;
-  sendJson(ws, { type: 'devices', list: deviceList() });
+  sendJson(ws, { type: 'devices', list: deviceList(), streaming, blocked: blockedList() });
   ws.on('message', (data) => {
     let m; try { m = JSON.parse(data); } catch { return; }
     if (m.type === 'watch') {
@@ -277,6 +335,18 @@ wss.on('connection', (ws, req) => {
       if (typeof m.notes === 'string') c.notes = m.notes.slice(0, 500);
       saveClients(); broadcastDevices();
       const a = agents.get(m.id); if (a) sendJson(a.ws, { type: 'assigned', num: c.num, client: c.name });
+    } else if (m.type === 'deleteClient') {
+      // apaga o cliente da lista e bloqueia a TV (senão ela volta sozinha com número novo)
+      const c = clients[m.id] || {};
+      blocked[m.id] = { num: c.num, name: c.name || '', model: c.model || '', at: Date.now() };
+      delete clients[m.id]; saveClients(); saveBlocked();
+      const a = agents.get(m.id);
+      if (a) { agents.delete(m.id); try { a.ws.close(4003, 'apagado pelo suporte'); } catch {} setTimeout(() => { try { a.ws.terminate(); } catch {} }, 3000); }
+      log('cliente apagado', m.id, c.num);
+      broadcastDevices();
+      sendJson(ws, { type: 'status', level: 'ok', msg: `Cliente nº ${String(c.num || '').padStart(4, '0')} apagado` });
+    } else if (m.type === 'unblockClient') {
+      if (blocked[m.id]) { delete blocked[m.id]; saveBlocked(); broadcastDevices(); sendJson(ws, { type: 'status', level: 'ok', msg: 'TV desbloqueada: quando ela ligar, volta para a lista com número novo' }); }
     } else if (m.type === 'forgetClient') {
       if (agents.get(m.id)) return sendJson(ws, { type: 'status', level: 'error', msg: 'Só dá para remover cliente offline' });
       delete clients[m.id]; saveClients(); broadcastDevices();

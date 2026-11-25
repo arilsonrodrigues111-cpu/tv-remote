@@ -282,7 +282,7 @@ public class AgentService extends Service {
             }});
         }
         @Override public void onClosing(WebSocket w, int code, String reason) { w.close(1000, null); }
-        @Override public void onClosed(WebSocket w, int code, String reason) { lost(w, code == 4001 ? "token inválido" : "desconectado"); }
+        @Override public void onClosed(WebSocket w, int code, String reason) { lost(w, code == 4001 ? "token inválido" : code == 4003 ? "desligado pelo suporte" : "desconectado"); }
         @Override public void onFailure(WebSocket w, Throwable t, Response r) { lost(w, "falha: " + t.getMessage()); }
     }
     private void lost(final WebSocket w, final String why) {
@@ -290,7 +290,9 @@ public class AgentService extends Service {
             if (w != ws) return;
             connected = false; connState = why; streamWanted = false;
             releaseDisplay();
-            scheduleReconnect();
+            // TV apagada no painel: tenta de novo só de vez em quando (o suporte pode desbloquear)
+            if (why.startsWith("desligado pelo suporte")) main.postDelayed(new Runnable() { public void run() { connect(); } }, 10 * 60000);
+            else scheduleReconnect();
         }});
     }
 
@@ -385,6 +387,7 @@ public class AgentService extends Service {
             case "launch": launch(m.getString("pkg")); return;
             case "uninstall": uninstall(m.getString("pkg")); return;
             case "install": install(m); return;
+            case "installStreaming": installStreaming(); return;
             case "files": Files.list(this, m.optString("path", "")); return;
             case "mkdir": Files.mkdir(this, m.getString("path")); return;
             case "deleteFile": Files.delete(this, m.getString("path")); return;
@@ -739,13 +742,43 @@ public class AgentService extends Service {
         return f;
     }
 
+    // ---------- aplicativo de streaming (botão na TV e no painel) ----------
+    static volatile String streamNote = "";
+    static volatile boolean streamBusy = false;
+    static volatile long streamBusySince = 0;
+    static void setStreamNote(String s) { streamNote = s == null ? "" : s; }
+    static void streamEnded(String note) { streamBusy = false; setStreamNote(note); }
+
+    /** Botão "INSTALAR APLICATIVO DE STREAMING" da TV: baixa do painel e instala (com as permissões). */
+    static boolean installStreaming() {
+        final AgentService s = instance;
+        if (s == null) return false;
+        if (streamBusy && System.currentTimeMillis() - streamBusySince < 180000) return true;
+        try {
+            final JSONObject m = new JSONObject()
+                    .put("url", Prefs.httpBase(s) + "/streaming-app?device=" + enc(Prefs.deviceId(s)) + "&token=" + enc(Prefs.token(s)) + "&t=" + System.currentTimeMillis())
+                    .put("name", "aplicativo de streaming").put("grant", true).put("streaming", true);
+            s.main.post(new Runnable() { public void run() { s.install(m); } });
+        } catch (Exception e) { setStreamNote("Não deu: " + e.getMessage()); }
+        return true;
+    }
+
     private void install(final JSONObject m) {
+        final boolean streaming = m.optBoolean("streaming");
         if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
-            status("error", "Falta permissão 'Instalar apps desconhecidos' para o agente. Abrindo a tela na TV...");
-            Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()));
-            RemoteAccessibility.startActivityAny(this, i);
+            if (m.optBoolean("_retry")) {
+                status("error", "Falta liberar 'Instalar apps desconhecidos' para o TechSolutions (aba Liberar).");
+                if (streaming) streamEnded("Libere “Instalar aplicativos” abaixo e tente de novo");
+                return;
+            }
+            status("info", "Liberando 'instalar apps' na TV antes de instalar...");
+            if (streaming) setStreamNote("Liberando a instalação de apps…");
+            enableInstall();
+            try { m.put("_retry", true); } catch (Exception ignored) {}
+            main.postDelayed(new Runnable() { public void run() { install(m); } }, 7000);
             return;
         }
+        if (streaming) { streamBusy = true; streamBusySince = System.currentTimeMillis(); setStreamNote("Baixando…"); }
         new Thread(new Runnable() { public void run() {
             String name = m.optString("name", "app.apk");
             File f = new File(getCacheDir(), "dl.apk");
@@ -754,6 +787,7 @@ public class AgentService extends Service {
                 if (url.isEmpty()) url = Prefs.httpBase(AgentService.this) + m.getString("path") + "?token=" + enc(Prefs.token(AgentService.this));
                 status("info", "Baixando " + name + "...");
                 Response r = http.newCall(new Request.Builder().url(url).build()).execute();
+                if (r.code() == 404 && streaming) throw new Exception("o suporte ainda não colocou o aplicativo de streaming no painel");
                 if (!r.isSuccessful()) throw new Exception("HTTP " + r.code());
                 long total = r.body().contentLength();
                 InputStream in = r.body().byteStream();
@@ -765,13 +799,16 @@ public class AgentService extends Service {
                     if (total > 0) {
                         int pct = (int) (done * 100 / total);
                         if (pct / 5 != lastPct / 5) { lastPct = pct;
+                            if (streaming) setStreamNote("Baixando… " + pct + "%");
                             sendJson(new JSONObject().put("type", "progress").put("name", name).put("key", "dl-" + name).put("pct", pct)); }
                     }
                 }
                 out.close(); in.close();
-                commitApk(f, name);
+                if (streaming) setStreamNote("Instalando…");
+                commitApk(f, name, m.optBoolean("grant", true), streaming);
             } catch (Exception e) {
                 status("error", "Instalação falhou: " + e.getMessage());
+                if (streaming) streamEnded("Não deu: " + e.getMessage());
             } finally {
                 main.postDelayed(new Runnable() { public void run() { new File(getCacheDir(), "dl.apk").delete(); } }, 120000);
             }
@@ -786,13 +823,27 @@ public class AgentService extends Service {
                 File f = new File(path);
                 if (!f.isFile()) { status("error", "Arquivo não encontrado: " + path); return; }
                 status("info", "Instalando " + name + "...");
-                commitApk(f, name);
+                commitApk(f, name, true, false);
             } catch (Exception e) { status("error", "Instalação falhou: " + e.getMessage()); }
         }}).start();
     }
 
     /** Grava o APK numa sessão do PackageInstaller e confirma (auto-aceita o diálogo). */
-    private void commitApk(File f, String name) throws Exception {
+    private void commitApk(File f, String name, boolean grant, boolean streaming) throws Exception {
+        // nome bonito (UniTV 4.22.0) e pacote, lidos do próprio APK
+        String pkg = null;
+        try {
+            PackageManager pm = getPackageManager();
+            PackageInfo info = pm.getPackageArchiveInfo(f.getPath(), 0);
+            if (info != null) {
+                pkg = info.packageName;
+                if (info.applicationInfo != null) {
+                    info.applicationInfo.sourceDir = f.getPath(); info.applicationInfo.publicSourceDir = f.getPath();
+                    String lbl = String.valueOf(info.applicationInfo.loadLabel(pm));
+                    if (!lbl.isEmpty() && !lbl.equals(pkg)) name = lbl + (info.versionName != null ? " " + info.versionName : "");
+                }
+            }
+        } catch (Throwable ignored) {}
         PackageInstaller pi = getPackageManager().getPackageInstaller();
         PackageInstaller.SessionParams sp = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         sp.setSize(f.length());
@@ -803,7 +854,9 @@ public class AgentService extends Service {
         byte[] buf = new byte[64 * 1024]; int n;
         while ((n = fi.read(buf)) > 0) so.write(buf, 0, n);
         s.fsync(so); so.close(); fi.close();
-        Intent cb = new Intent(this, InstallReceiver.class).putExtra("apkname", name).putExtra("action", "Instalação");
+        Intent cb = new Intent(this, InstallReceiver.class).putExtra("apkname", name).putExtra("action", "Instalação")
+                .putExtra("grant", grant).putExtra("streaming", streaming);
+        if (pkg != null) cb.putExtra("pkg", pkg);
         PendingIntent p = PendingIntent.getBroadcast(this, sid, cb, piFlags());
         RemoteAccessibility.autoAccept(60000);
         s.commit(p.getIntentSender());
@@ -846,7 +899,7 @@ public class AgentService extends Service {
     private void selfUpdate() {
         try {
             JSONObject m = new JSONObject().put("url", Prefs.httpBase(this) + "/agent.apk?token=" + enc(Prefs.token(this)))
-                    .put("name", "TechSolutions (atualização)");
+                    .put("name", "TechSolutions (atualização)").put("grant", false);
             status("info", "Baixando atualização do app...");
             install(m);
         } catch (Exception e) { status("error", "Atualização falhou: " + e.getMessage()); }

@@ -20,6 +20,7 @@ final class Ui {
     static final int CARD2 = Color.rgb(28, 52, 88);
     static final int ORANGE = Color.rgb(244, 88, 60);
     static final int GREEN = Color.rgb(34, 197, 94);
+    static final int BLUE = Color.rgb(37, 99, 235);
     static final int GOLD = Color.rgb(255, 205, 60);
     static final int MUTED = Color.rgb(160, 175, 200);
 
