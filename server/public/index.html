@@ -200,6 +200,9 @@
   .listrow { display:flex; align-items:center; gap:6px; padding:7px 0; border-bottom:1px solid #1c2640; }
   .listrow span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .listrow small { color:var(--mut); display:block; font-size:11px; }
+  button.shieldbtn { white-space:nowrap; }
+  button.shieldbtn.on { border-color:#1f5135; color:#86efac; background:#11281c; }
+  button.shieldbtn:disabled { opacity:.8; cursor:default; border-color:#1f5135; color:#86efac; background:#11281c; }
   .listrow button { padding:4px 8px; font-size:12px; }
   #log div { font:12px ui-monospace, monospace; padding:4px 0; border-bottom:1px solid #18203a; }
   #log .error { color:#f87171; } #log .ok { color:#4ade80; }
@@ -1442,22 +1445,56 @@ function renderApps() {
   const list = apps.filter((a) => !q || a.label.toLowerCase().includes(q) || a.pkg.includes(q));
   if (!apps.length) { el.innerHTML = '<span class="hint">Clique em ↻ para listar.</span>'; return; }
   el.innerHTML = '';
+  const d = devices.find((x) => x.id === current) || {};
+  const me = allMeta.me || 'com.arilson.tvremote';
+  const prot = new Set(d.protectPkgs || []);
+  const protOn = !!d.protect;
+  const okVer = parseFloat(d.agentVersion) >= 2.5 && (d.build || 0) >= 28;
+  const pbox = document.createElement('div'); pbox.className = 'sec';
+  pbox.innerHTML = `<h3>🛡 Proteção contra desinstalação</h3>
+    <div class="hint" style="margin-bottom:8px">Com a proteção ligada, o cliente não consegue desinstalar os apps marcados: o controle cancela a tela de "Desinstalar?" sozinho. O TechSolutions fica sempre protegido. Marque abaixo os apps que você quer travar (ex.: o de streaming).</div>
+    ${!okVer ? '<div class="warnbox">Atualize o app desta TV (Mais › Atualizar o app da TV) para usar a proteção.</div>' : `
+    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="protMaster" ${protOn ? 'checked' : ''} onchange="protectMaster(this.checked)"><b>${protOn ? 'Ligada' : 'Desligada'}</b> nesta TV ${protOn ? `<span class="bdg ok">${prot.size + 1} apps protegidos</span>` : ''}</label>
+    <div class="hint" style="margin-top:6px">Proteção pela acessibilidade (controle ligado). Só vale enquanto o controle está ativo.</div>`}`;
+  el.appendChild(pbox);
   for (const a of list) {
     const meta = (allApps || []).find((x) => x.pkg === a.pkg) || {};
     const native = meta.tsnative;
+    const isMe = a.pkg === me;
+    const locked = isMe; // o próprio TechSolutions está sempre protegido
+    const on = locked || prot.has(a.pkg);
     const nativeBtn = hasRoot() ? (native
-      ? `<button title="Tirar da partição do sistema" class="danger">Tirar do sistema</button>`
-      : `<button title="Deixar na partição do sistema (sobrevive ao reset de fábrica)">📌 Deixar nativo</button>`) : '';
+      ? `<button class="nativebtn" title="Tirar da partição do sistema" class="danger">Tirar do sistema</button>`
+      : `<button class="nativebtn" title="Deixar na partição do sistema (sobrevive ao reset de fábrica)">📌 Deixar nativo</button>`) : '';
+    const shieldBtn = okVer ? `<button class="shieldbtn${on ? ' on' : ''}" title="${locked ? 'Sempre protegido' : (on ? 'Proteger: ligado — clique para desligar' : 'Proteger contra desinstalação')}"${locked ? ' disabled' : ''}>${on ? '🛡 Protegido' : '🛡'}</button>` : '';
     const row = document.createElement('div'); row.className = 'listrow';
-    row.innerHTML = `<span><b></b><small></small>${native ? '<span class="bdg ok" style="margin-left:6px">nativo ✓</span>' : ''}</span>${nativeBtn}<button title="Abrir na TV">▶ Abrir</button><button title="Desinstalar">🗑</button>`;
+    row.innerHTML = `<span><b></b><small></small>${native ? '<span class="bdg ok" style="margin-left:6px">nativo ✓</span>' : ''}</span>${shieldBtn}${nativeBtn}<button title="Abrir na TV">▶ Abrir</button><button title="Desinstalar">🗑</button>`;
     row.querySelector('b').textContent = a.label; row.querySelector('small').textContent = a.pkg + (a.version ? ' · ' + a.version : '');
-    const btns = row.querySelectorAll('button');
-    const bo = btns[btns.length - 2], bu = btns[btns.length - 1];
-    if (nativeBtn) btns[0].onclick = () => native ? sysAppRemove({ pkg: a.pkg, label: a.label }) : sysApp({ pkg: a.pkg, label: a.label });
+    const bo = row.querySelector('[title="Abrir na TV"]'), bu = row.querySelector('[title="Desinstalar"]');
+    const sh = row.querySelector('.shieldbtn'), nb = row.querySelector('.nativebtn');
+    if (sh && !locked) sh.onclick = () => protectApp(a.pkg, !prot.has(a.pkg));
+    if (nb) nb.onclick = () => native ? sysAppRemove({ pkg: a.pkg, label: a.label }) : sysApp({ pkg: a.pkg, label: a.label });
     bo.onclick = () => send({ type: 'launch', pkg: a.pkg });
     bu.onclick = () => { if (confirm(`Desinstalar ${a.label}?`)) send({ type: 'uninstall', pkg: a.pkg }); };
     el.appendChild(row);
   }
+}
+function curDev() { return devices.find((x) => x.id === current) || {}; }
+function protectMaster(on) {
+  const d = curDev();
+  send({ type: 'protect', on, pkgs: d.protectPkgs || [] });
+  d.protect = on; renderApps();
+  toast(on ? 'Ligando a proteção na TV…' : 'Desligando a proteção…');
+}
+function protectApp(pkg, add) {
+  const d = curDev();
+  const set = new Set(d.protectPkgs || []);
+  if (add) set.add(pkg); else set.delete(pkg);
+  const pkgs = [...set];
+  const on = d.protect || add; // marcar um app já liga a proteção
+  send({ type: 'protect', on, pkgs });
+  d.protectPkgs = pkgs; d.protect = on; renderApps();
+  toast(add ? 'Protegendo o app na TV…' : 'Removendo a proteção do app…');
 }
 // ===== teclado do computador quando a TV abre um campo de texto =====
 let imeDismissed = false, imeWasOpen = false;

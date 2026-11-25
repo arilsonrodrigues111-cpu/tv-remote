@@ -42,6 +42,11 @@ public class RemoteAccessibility extends AccessibilityService {
     private static final String[] DEBUG_WORDS = { "permitir", "allow", "ok", "sim", "yes", "aceptar", "permitir sempre" };
     private static final String[] DEBUG_CHECK = { "sempre permitir", "always allow", "permitir siempre" };
     private static final String[] CHECKBOX = { "não mostrar novamente", "nao mostrar novamente", "don't show again", "no volver a mostrar" };
+    // Botão de cancelar (negativo) da tela de desinstalar
+    private static final String[] CANCEL_WORDS = { "cancelar", "cancel", "não", "nao", "no", "voltar", "back", "agora não", "agora nao" };
+    // A tela mostrada é de DESINSTALAR (e não de instalar)?
+    private static final String[] UNINSTALL_HINTS = { "desinstalar", "uninstall", "desinstalação", "desinstalacao", "desinstalación", "desinstalacion", "remover o app", "remove app" };
+    private static final String[] INSTALL_HINTS = { "deseja instalar", "quer instalar", "instalar atualização", "instalar atualizacao", "do you want to install", "installing", "instalando" };
 
     static boolean enabled() { return instance != null; }
 
@@ -396,7 +401,84 @@ public class RemoteAccessibility extends AccessibilityService {
                     || t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
                 h.removeCallbacks(imeCheck); h.postDelayed(imeCheck, 350);
             }
+            if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || t == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+                h.removeCallbacks(protectCheck); h.postDelayed(protectCheck, 120);
+            }
         } catch (Throwable ignored) {}
+    }
+
+    // ---------- proteção contra desinstalação ----------
+    private long protectCooldown = 0;
+    private final Runnable protectCheck = new Runnable() { public void run() { try { checkUninstall(); } catch (Throwable ignored) {} } };
+
+    /** Se a tela de "Desinstalar?" de um app protegido aparecer, cancela antes de confirmar. */
+    private void checkUninstall() {
+        if (!Protect.on(this)) return;
+        long now = System.currentTimeMillis();
+        if (now < protectCooldown) return;
+
+        AccessibilityNodeInfo active = getRootInActiveWindow();
+        if (active == null) return;
+        CharSequence apk = active.getPackageName();
+        String ap = apk == null ? "" : apk.toString();
+        // a confirmação de desinstalar vem do instalador de pacotes ou das Configurações (Google TV)
+        boolean installer = ap.contains("packageinstaller");
+        boolean settings = ap.contains(".settings") || ap.equals("com.android.settings") || ap.equals("com.android.tv.settings");
+        if (!installer && !settings) return;
+
+        List<AccessibilityNodeInfo> all = new ArrayList<>();
+        collect(active, all, 0);
+        StringBuilder sb = new StringBuilder();
+        for (AccessibilityNodeInfo n : all) {
+            CharSequence tx = n.getText();
+            if (tx == null) tx = n.getContentDescription();
+            if (tx != null) sb.append(tx).append('\n');
+        }
+        String screen = sb.toString().toLowerCase(Locale.ROOT);
+
+        boolean isUninstall = false;
+        for (String w : UNINSTALL_HINTS) if (screen.contains(w)) { isUninstall = true; break; }
+        if (!isUninstall) return;
+        for (String w : INSTALL_HINTS) if (screen.contains(w)) return; // é instalação/atualização: deixa passar
+        // numa tela de Configurações só age se for mesmo um diálogo de confirmação (tem botão cancelar/voltar)
+        if (settings && !installer) {
+            boolean dialog = false;
+            for (AccessibilityNodeInfo n : all) if (matches(n, CANCEL_WORDS)) { dialog = true; break; }
+            if (!dialog) return;
+        }
+
+        String target = null;
+        for (String lab : Protect.labels(this)) if (!lab.isEmpty() && screen.contains(lab)) { target = lab; break; }
+        if (target == null) return; // não é um app protegido
+
+        protectCooldown = now + 2000;
+        boolean clicked = false;
+        // 1º: botão negativo padrão (android:id/button2); 2º: qualquer "Cancelar/Voltar"
+        for (AccessibilityNodeInfo n : all) {
+            String vid = n.getViewIdResourceName();
+            if (vid != null && vid.endsWith("/button2") && n.isEnabled() && n.isVisibleToUser()) {
+                AccessibilityNodeInfo t = clickable(n);
+                if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) { clicked = true; break; }
+            }
+        }
+        if (!clicked) for (AccessibilityNodeInfo n : all) {
+            if (!n.isEnabled() || !n.isVisibleToUser() || !matches(n, CANCEL_WORDS)) continue;
+            AccessibilityNodeInfo t = clickable(n);
+            if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) { clicked = true; break; }
+        }
+        if (!clicked) performGlobalAction(GLOBAL_ACTION_BACK);
+        final String ft = target;
+        // garantia: se a tela de desinstalar ainda estiver na frente, volta de novo
+        h.postDelayed(new Runnable() { public void run() {
+            try {
+                AccessibilityNodeInfo r = getRootInActiveWindow();
+                String p = r == null || r.getPackageName() == null ? "" : r.getPackageName().toString();
+                if (p.contains("packageinstaller")) performGlobalAction(GLOBAL_ACTION_BACK);
+            } catch (Throwable ignored) {}
+        }}, 450);
+        Diag.event("proteção: bloqueou desinstalar (" + ft + ")");
+        try { showMessage("Este aplicativo é protegido pelo suporte TechSolutions e não pode ser desinstalado."); } catch (Throwable ignored) {}
+        AgentService.status("info", "Bloqueei uma tentativa de desinstalar um app protegido nesta TV.");
     }
 
     // ---------- teclado da TV aberto? (o painel abre a digitação pelo teclado do computador) ----------

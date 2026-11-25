@@ -325,6 +325,7 @@ public class AgentService extends Service {
                     .put("root", rootState)
                     .put("agentVersion", BuildInfo.VERSION).put("build", BuildInfo.CODE);
             Launcher.putInfo(this, info);
+            Protect.putInfo(this, info);
             sendJson(new JSONObject().put("type", "info").put("info", info));
         } catch (Exception ignored) {}
     }
@@ -355,6 +356,17 @@ public class AgentService extends Service {
                 if (vdisplay != null) { releaseDisplay(); ensureDisplay(); }
                 return;
             case "info": sendInfo(); return;
+            case "protect": {
+                java.util.List<String> ps = new java.util.ArrayList<>();
+                org.json.JSONArray pa = m.optJSONArray("pkgs");
+                if (pa != null) for (int i = 0; i < pa.length(); i++) ps.add(pa.optString(i));
+                Protect.set(this, m.optBoolean("on"), ps);
+                boolean on = Protect.on(this);
+                status("ok", on ? "Proteção contra desinstalação ligada nesta TV (" + (Protect.chosen(this).size() + 1) + " apps)."
+                                : "Proteção contra desinstalação desligada nesta TV.");
+                sendInfo();
+                return;
+            }
             case "apps": sendApps(); return;
             case "allApps": sendAllApps(); return;
             case "launcher": {
