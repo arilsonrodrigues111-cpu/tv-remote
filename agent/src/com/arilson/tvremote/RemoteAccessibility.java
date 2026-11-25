@@ -232,6 +232,7 @@ public class RemoteAccessibility extends AccessibilityService {
             case 1:
                 n = findText(all, AO_ACCOUNTS, false);
                 if (n != null && clickRow(n)) { aoNext(2, 1800); return; }
+                if (n != null && aoTries % 3 == 2 && okKey()) { aoNext(2, 1800); return; }
                 break;
             case 2: {
                 AccessibilityNodeInfo mail = null;
@@ -240,6 +241,7 @@ public class RemoteAccessibility extends AccessibilityService {
                     if (t != null && x.isVisibleToUser() && t.toString().matches("(?s)\\s*[^\\s@,]+@[^\\s@,]+\\.[^\\s@,]+\\s*")) { mail = x; break; }
                 }
                 if (mail != null && clickRow(mail)) { aoNext(3, 1800); return; }
+                if (mail != null && aoTries % 3 == 2 && okKey()) { aoNext(3, 1800); return; }
                 break;
             }
             case 3:
@@ -322,9 +324,19 @@ public class RemoteAccessibility extends AccessibilityService {
         for (int up = 0; up < 4 && t != null && !t.isClickable(); up++) t = t.getParent();
         return t != null && t.isClickable() ? t : null;
     }
+    /** Telas de TV (leanback) só abrem o item que está focado: foca primeiro e clica no próximo ciclo. */
     private static boolean clickRow(AccessibilityNodeInfo n) {
         AccessibilityNodeInfo t = clickable(n);
-        return t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        if (t == null) return false;
+        if (t.isFocusable() && !t.isFocused()) { t.performAction(AccessibilityNodeInfo.ACTION_FOCUS); return false; }
+        return t.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+    }
+    /** Com o Modo avançado: aperta OK de verdade no item focado (algumas telas ignoram o clique da acessibilidade). */
+    private static boolean okKey() {
+        if (!AdbShell.isReady() || instance == null) return false;
+        AdbShell.get(instance).run("input keyevent 23");
+        Diag.event("modo somente apps: clique não entrou no passo " + aoStep + ", usei OK pelo Modo avançado");
+        return true;
     }
     private static void scrollAny(List<AccessibilityNodeInfo> all) {
         for (AccessibilityNodeInfo x : all) if (x.isScrollable() && x.isVisibleToUser()) { x.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); }
