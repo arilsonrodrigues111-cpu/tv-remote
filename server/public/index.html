@@ -66,6 +66,12 @@
   .dev .name { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
   .dev .name .dot { width:8px; height:8px; }
   .dev .sub { color:var(--mut); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dev .devdel { background:none; border:0; padding:2px 5px; color:var(--mut); font-size:14px; opacity:.55; flex-shrink:0; }
+  .dev .devdel:hover { color:#f87171; opacity:1; }
+  .dev .delbar { margin-top:8px; padding:8px; border-radius:8px; background:#3a1717; border:1px solid #5b2323; display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12.5px; white-space:normal; cursor:default; }
+  .dev .delbar span { flex:1 1 100%; }
+  .dev .delbar button { padding:5px 10px; font-size:12.5px; }
+  .dev.offline:has(.delbar) { opacity:1; }
   .badges { display:flex; gap:4px; margin-top:5px; flex-wrap:wrap; }
   .bdg { font-size:11px; padding:1px 7px; border-radius:20px; background:#1c2742; color:var(--mut); border:1px solid var(--line); }
   .bdg.ok { color:#86efac; border-color:#1f5135; background:#11281c; }
@@ -909,7 +915,7 @@ function devCard(d) {
   const online = d.online !== false;
   div.className = 'dev' + (d.id === current ? ' sel' : '') + (online ? '' : ' offline');
   div.innerHTML = `<div class="num"><small>CLIENTE</small>${pad4(d.num)}</div>
-    <div class="info"><div class="name"><span class="dot ${online ? 'on' : 'off'}"></span><span class="grow" style="overflow:hidden;text-overflow:ellipsis">${esc(d.client || 'Sem nome')}</span></div>
+    <div class="info"><div class="name"><span class="dot ${online ? 'on' : 'off'}"></span><span class="grow" style="overflow:hidden;text-overflow:ellipsis">${esc(d.client || 'Sem nome')}</span><button class="devdel" title="Apagar cliente">🗑</button></div>
     <div class="sub">${esc([d.model, d.android && 'Android ' + d.android, d.agentVersion && 'v' + d.agentVersion].filter(Boolean).join(' · '))}</div>
     <div class="badges">${online ? [
       `<span class="bdg ${d.capturing ? 'ok' : 'bad'}" title="Ver a tela">tela ${d.capturing ? '✓' : '✗'}</span>`,
@@ -917,9 +923,24 @@ function devCard(d) {
         : `<span class="bdg ${d.accessibility !== false ? 'ok' : 'bad'}" title="Controle (Acessibilidade)">controle ${d.accessibility !== false ? '✓' : '✗'}</span>`,
       d.adb === 'ativo' ? '<span class="bdg ok" title="Modo avançado">avançado ✓</span>' : '',
       d.since ? `<span class="bdg" title="Online desde ${esc(hora(d.since))}">online ${esc(durCurta(d.since))}</span>` : ''
-    ].join('') : `<span class="bdg">offline · ${esc(ago(d.lastSeen))}</span>`}</div></div>`;
+    ].join('') : `<span class="bdg">offline · ${esc(ago(d.lastSeen))}</span>`}</div>${pendingDel === d.id ? `<div class="delbar"><span>Apagar o cliente nº ${pad4(d.num)}? Ele sai da lista e a TV dele deixa de conectar.</span><button class="danger" data-del="yes">Apagar</button><button data-del="no">Cancelar</button></div>` : ''}</div>`;
   div.onclick = () => { watch(d.id); if (isMobile()) mview('tv'); };
+  div.querySelector('.devdel').onclick = (e) => { e.stopPropagation(); pendingDel = d.id; clearTimeout(pendingDelT); pendingDelT = setTimeout(() => { pendingDel = null; renderDevices(); }, 20000); renderDevices(); };
+  const bar = div.querySelector('.delbar');
+  if (bar) {
+    bar.onclick = (e) => e.stopPropagation();
+    bar.querySelector('[data-del="yes"]').onclick = () => { pendingDel = null; deleteClient(d); };
+    bar.querySelector('[data-del="no"]').onclick = () => { pendingDel = null; renderDevices(); };
+  }
   return div;
+}
+let pendingDel = null, pendingDelT = null;
+function deleteClient(d) {
+  ws.send(JSON.stringify({ type: 'deleteClient', id: d.id }));
+  if (current === d.id) {
+    current = null; try { localStorage.removeItem('tvr_last'); } catch {}
+    $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">🗑</div>Cliente apagado.';
+  }
 }
 setInterval(() => { try { if (devices.length) renderDevices(); } catch {} }, 60000);
 function renderDevices() {
@@ -988,13 +1009,10 @@ function openClient() {
   $('cmNum').innerHTML = `<small>CLIENTE</small>${pad4(d.num)}`;
   $('cmModel').textContent = [d.model, d.android && 'Android ' + d.android].filter(Boolean).join(' · ');
   $('cmName').value = d.client || ''; $('cmNotes').value = d.notes || '';
-  $('cmForget').style.display = '';
+  $('cmForget').style.display = ''; $('cmForget').textContent = '🗑 Apagar cliente'; $('cmForget').classList.remove('danger');
   $('cmForget').onclick = () => {
-    const quem = `nº ${pad4(d.num)}${d.client ? ' (' + d.client + ')' : ''}`;
-    if (!confirm(`Apagar o cliente ${quem}?\n\nEle sai da lista e a TV dele deixa de se conectar ao suporte.\nSe precisar, dá para desbloquear depois em “TVs apagadas”, embaixo da lista de clientes.`)) return;
-    ws.send(JSON.stringify({ type: 'deleteClient', id: d.id }));
-    current = null; try { localStorage.removeItem('tvr_last'); } catch {} closeModal();
-    $('screen').style.display = 'none'; $('placeholder').style.display = ''; $('placeholder').innerHTML = '<div class="big">🗑</div>Cliente apagado.';
+    if (!$('cmForget').classList.contains('danger')) { $('cmForget').textContent = 'Clique de novo para apagar'; $('cmForget').classList.add('danger'); return; }
+    deleteClient(d); closeModal();
   };
   $('clientModal').classList.add('on'); setTimeout(() => $('cmName').focus(), 50);
 }
